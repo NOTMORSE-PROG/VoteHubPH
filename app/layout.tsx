@@ -7,6 +7,8 @@ import { Suspense } from "react"
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { LanguageProvider } from "@/lib/language-context"
+import { Providers } from "./providers"
+import { ScrollToTop } from "@/components/scroll-to-top"
 
 export const metadata: Metadata = {
   title: "VoteHubPH - Empowering Filipino Voters",
@@ -21,12 +23,15 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
-        <ThemeProvider>
-          <LanguageProvider>
-            <Suspense fallback={<div>Loading...</div>}>{children}</Suspense>
-            <Analytics />
-          </LanguageProvider>
-        </ThemeProvider>
+        <Providers>
+          <ThemeProvider>
+            <LanguageProvider>
+              <Suspense fallback={<div>Loading...</div>}>{children}</Suspense>
+              <ScrollToTop />
+              <Analytics />
+            </LanguageProvider>
+          </ThemeProvider>
+        </Providers>
       </body>
     </html>
   )

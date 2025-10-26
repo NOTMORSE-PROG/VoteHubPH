@@ -1,16 +1,15 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { ArrowUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { ChevronUp } from "lucide-react"
 
 export function ScrollToTop() {
   const [isVisible, setIsVisible] = useState(false)
 
   useEffect(() => {
     const toggleVisibility = () => {
-      // Show button when page is scrolled down 300px
-      if (window.scrollY > 300) {
+      if (window.pageYOffset > 300) {
         setIsVisible(true)
       } else {
         setIsVisible(false)
@@ -19,9 +18,7 @@ export function ScrollToTop() {
 
     window.addEventListener("scroll", toggleVisibility)
 
-    return () => {
-      window.removeEventListener("scroll", toggleVisibility)
-    }
+    return () => window.removeEventListener("scroll", toggleVisibility)
   }, [])
 
   const scrollToTop = () => {
@@ -39,10 +36,10 @@ export function ScrollToTop() {
     <Button
       onClick={scrollToTop}
       size="icon"
-      className="fixed bottom-8 right-8 z-50 h-12 w-12 rounded-full shadow-lg"
+      className="fixed bottom-6 right-6 z-50 rounded-full shadow-lg hover:shadow-xl transition-all"
       aria-label="Scroll to top"
     >
-      <ChevronUp className="h-6 w-6" />
+      <ArrowUp className="h-5 w-5" />
     </Button>
   )
 }

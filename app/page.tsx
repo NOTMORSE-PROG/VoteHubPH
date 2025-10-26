@@ -226,9 +226,9 @@ export default function HomePage() {
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/browse">
-              <Button size="lg"><T>Browse Candidates</T></Button>
+              <Button size="lg" className="w-full sm:w-auto"><T>Browse Candidates</T></Button>
             </Link>
-            <Button onClick={() => {}} variant="outline" size="lg">
+            <Button onClick={() => {}} variant="outline" size="lg" className="w-full sm:w-auto">
               <T>Continue as Guest</T>
             </Button>
           </div>
