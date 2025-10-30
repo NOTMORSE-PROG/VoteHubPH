@@ -17,15 +17,15 @@ export interface VotingLocation {
 export const electionSchedule: ElectionEvent[] = [
   {
     id: "election1",
-    name: "National Elections 2025",
+    name: "2025 Philippine Midterm Elections",
     date: new Date("2025-05-12"),
-    positions: ["President", "Vice President", "Senators", "House Representatives"],
+    positions: ["Senators (12 seats)", "House Representatives (316 seats)", "Party-List Representatives (63 seats)", "Provincial Governors", "Vice Governors", "Provincial Board Members", "City/Municipal Mayors", "City/Municipal Vice Mayors", "City/Municipal Councilors"],
     level: "national",
-    description: "General national elections for all national positions",
+    description: "Official COMELEC 2025 National and Local Elections. All Filipinos registered by September 30, 2024 are eligible to vote. Election period: January 12 - June 11, 2025.",
     votingLocations: [
       {
         region: "NCR",
-        cities: ["Manila", "Quezon City", "Makati", "Pasig", "Taguig"],
+        cities: ["Manila", "Quezon City", "Makati", "Pasig", "Taguig", "Caloocan", "Las Piñas", "Parañaque", "Muntinlupa", "Mandaluyong", "Marikina", "Pasay", "Valenzuela", "Malabon", "Navotas", "San Juan", "Pateros"],
         votingCenters: ["Schools", "Barangay Halls", "Community Centers"],
       },
       {
@@ -35,98 +35,33 @@ export const electionSchedule: ElectionEvent[] = [
       },
       {
         region: "Central Visayas",
-        cities: ["Cebu City", "Mandaue", "Lapu-Lapu", "Bohol"],
+        cities: ["Cebu City", "Mandaue", "Lapu-Lapu", "Tagbilaran", "Dumaguete"],
         votingCenters: ["Schools", "Barangay Halls", "Community Centers"],
       },
       {
         region: "Davao Region",
-        cities: ["Davao City", "Tagum", "Panabo", "Mati"],
+        cities: ["Davao City", "Tagum", "Panabo", "Mati", "Digos"],
         votingCenters: ["Schools", "Barangay Halls", "Community Centers"],
       },
-    ],
-  },
-  {
-    id: "election2",
-    name: "Local Elections - Metro Manila",
-    date: new Date("2025-10-13"),
-    positions: ["Mayor", "Vice Mayor", "City Councilors", "Barangay Officials"],
-    level: "local",
-    description: "Local elections for Metro Manila cities and municipalities",
-    votingLocations: [
       {
-        region: "NCR",
-        cities: ["Manila", "Quezon City", "Makati", "Pasig", "Taguig", "Caloocan", "Las Piñas", "Parañaque"],
-        votingCenters: ["Barangay Halls", "Schools", "Community Centers"],
+        region: "Ilocos Region",
+        cities: ["Laoag", "Vigan", "Batac", "San Fernando"],
+        votingCenters: ["Schools", "Barangay Halls", "Community Centers"],
       },
-    ],
-  },
-  {
-    id: "election3",
-    name: "Local Elections - Visayas",
-    date: new Date("2025-10-13"),
-    positions: ["Mayor", "Vice Mayor", "City Councilors", "Barangay Officials"],
-    level: "local",
-    description: "Local elections for Visayas region",
-    votingLocations: [
       {
-        region: "Central Visayas",
-        cities: ["Cebu City", "Mandaue", "Lapu-Lapu", "Bohol", "Negros Oriental"],
-        votingCenters: ["Barangay Halls", "Schools", "Community Centers"],
+        region: "Central Luzon",
+        cities: ["Angeles", "San Fernando", "Olongapo", "Malolos", "Cabanatuan"],
+        votingCenters: ["Schools", "Barangay Halls", "Community Centers"],
       },
       {
         region: "Western Visayas",
-        cities: ["Iloilo City", "Bacolod", "Capiz", "Antique"],
-        votingCenters: ["Barangay Halls", "Schools", "Community Centers"],
-      },
-    ],
-  },
-  {
-    id: "election4",
-    name: "Local Elections - Mindanao",
-    date: new Date("2025-10-13"),
-    positions: ["Mayor", "Vice Mayor", "City Councilors", "Barangay Officials"],
-    level: "local",
-    description: "Local elections for Mindanao region",
-    votingLocations: [
-      {
-        region: "Davao Region",
-        cities: ["Davao City", "Tagum", "Panabo", "Mati"],
-        votingCenters: ["Barangay Halls", "Schools", "Community Centers"],
+        cities: ["Iloilo City", "Bacolod", "Roxas", "Kalibo"],
+        votingCenters: ["Schools", "Barangay Halls", "Community Centers"],
       },
       {
         region: "Northern Mindanao",
-        cities: ["Cagayan de Oro", "Butuan", "Surigao"],
-        votingCenters: ["Barangay Halls", "Schools", "Community Centers"],
-      },
-    ],
-  },
-  {
-    id: "election5",
-    name: "Barangay Elections - NCR",
-    date: new Date("2025-11-10"),
-    positions: ["Barangay Chairman", "Barangay Kagawad", "SK Chairman"],
-    level: "local",
-    description: "Barangay level elections for National Capital Region",
-    votingLocations: [
-      {
-        region: "NCR",
-        cities: ["All NCR Cities and Municipalities"],
-        votingCenters: ["Barangay Halls", "Community Centers"],
-      },
-    ],
-  },
-  {
-    id: "election6",
-    name: "Special Elections",
-    date: new Date("2025-12-08"),
-    positions: ["Various Positions"],
-    level: "local",
-    description: "Special elections for vacant positions",
-    votingLocations: [
-      {
-        region: "Various",
-        cities: ["Designated Areas"],
-        votingCenters: ["Barangay Halls", "Schools"],
+        cities: ["Cagayan de Oro", "Butuan", "Iligan", "Valencia"],
+        votingCenters: ["Schools", "Barangay Halls", "Community Centers"],
       },
     ],
   },
