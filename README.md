@@ -1,25 +1,18 @@
-# VoteHubPH 🇵🇭
+# VoteHubPH
 
-**Your Voice Shapes the Future**
+A comprehensive voting platform designed to empower Filipino citizens with transparent candidate information, community insights, and real-time engagement across all levels of Philippine government.
 
-VoteHubPH is a comprehensive voting platform designed to empower Filipino citizens with transparent candidate information, community insights, and real-time engagement across all levels of Philippine government.
+## Repository Structure
 
-## 📦 Repository Structure
+This repository contains three applications:
 
-This repository contains both the frontend and backend applications:
+- **frontend/** - Next.js 14 application
+- **backend/** - Laravel 11 API
+- **admin/** - Admin panel (Next.js)
 
-- **Frontend**: Next.js 14 application ([`frontend/`](./frontend/))
-- **Backend**: Laravel 11 API ([`backend/`](./backend/))
+## Quick Start
 
-For production deployments, these are maintained as separate repositories:
-- Frontend: https://github.com/NOTMORSE-PROG/VoteHubPH_Frontend
-- Backend: https://github.com/NOTMORSE-PROG/VoteHubPH_Backend
-
-## 🚀 Quick Start
-
-### Frontend Setup
-
-See [frontend/README.md](./frontend/README.md) and [frontend/SETUP.md](./frontend/SETUP.md) for detailed instructions.
+### Frontend
 
 ```bash
 cd frontend
@@ -31,9 +24,7 @@ pnpm db:push
 pnpm dev
 ```
 
-### Backend Setup
-
-See [backend/README.md](./backend/README.md) and [backend/SETUP.md](./backend/SETUP.md) for detailed instructions.
+### Backend
 
 ```bash
 cd backend
@@ -46,7 +37,7 @@ php artisan db:seed --class=PhilippineLocationsSeeder
 php artisan serve
 ```
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 ### Frontend
 - Next.js 14 (App Router)
@@ -63,21 +54,6 @@ php artisan serve
 - Cloudinary
 - SMTP (Gmail)
 
-## 📚 Documentation
+## License
 
-- [Frontend README](./frontend/README.md)
-- [Frontend Setup Guide](./frontend/SETUP.md)
-- [Backend README](./backend/README.md)
-- [Backend Setup Guide](./backend/SETUP.md)
-
-## 📝 License
-
-This project is open source and available under the MIT License.
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
----
-
-**VoteHubPH** - Empowering informed voting decisions across the Philippines 🇵🇭
+MIT License
