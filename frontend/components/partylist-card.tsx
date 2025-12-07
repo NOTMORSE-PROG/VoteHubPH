@@ -2,21 +2,23 @@
 
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Users } from "lucide-react"
 import Link from "next/link"
-import type { PartyListGroup } from "@/lib/candidate-data"
-import { useTranslate } from "@/lib/use-translate"
-import { T } from "@/components/auto-translate"
+
+interface PartyList {
+  id: number
+  name: string
+  acronym?: string | null
+  sector?: string | null
+  description?: string | null
+  member_count: number
+}
 
 interface PartyListCardProps {
-  partyList: PartyListGroup
-  currentTab?: string
+  partyList: PartyList
+  currentTab?: "local" | "national" | "partylist"
 }
 
 export function PartyListCard({ partyList, currentTab = "partylist" }: PartyListCardProps) {
-  const translatedDescription = useTranslate(partyList.description)
-  const translatedSector = useTranslate(partyList.sector)
-
   return (
     <Link href={`/partylist/${partyList.id}?from=${currentTab}`}>
       <Card className="hover:shadow-lg transition-shadow cursor-pointer h-full">
@@ -26,20 +28,24 @@ export function PartyListCard({ partyList, currentTab = "partylist" }: PartyList
               <h3 className="font-bold text-lg leading-tight line-clamp-2">{partyList.name}</h3>
               {partyList.acronym && <p className="text-sm text-muted-foreground mt-1">{partyList.acronym}</p>}
             </div>
-            <Users className="h-5 w-5 text-primary flex-shrink-0" />
           </div>
-          <Badge variant="secondary" className="w-fit">
-            {translatedSector}
-          </Badge>
+          {partyList.sector && (
+            <Badge variant="secondary" className="w-fit">
+              {partyList.sector}
+            </Badge>
+          )}
         </CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground line-clamp-3">{translatedDescription}</p>
+          {partyList.description && (
+            <p className="text-sm text-muted-foreground line-clamp-3">{partyList.description}</p>
+          )}
           <div className="flex items-center justify-between text-xs text-muted-foreground pt-2 border-t">
-            <span>{partyList.nominees.length} <T>members</T></span>
-            <span className="text-primary font-medium"><T>View Details</T> →</span>
+            <span className="font-medium">{partyList.member_count || 0} {partyList.member_count === 1 ? 'member' : 'members'}</span>
+            <span className="text-primary font-medium">View Details →</span>
           </div>
         </CardContent>
       </Card>
     </Link>
   )
 }
+

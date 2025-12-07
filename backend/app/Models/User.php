@@ -12,6 +12,11 @@ class User extends Authenticatable
     use HasFactory, Notifiable, HasApiTokens;
 
     /**
+     * The table associated with the model.
+     */
+    protected $table = 'User';
+
+    /**
      * Indicates if the IDs are auto-incrementing.
      */
     public $incrementing = false;
@@ -34,10 +39,11 @@ class User extends Authenticatable
         'provider',
         'provider_id',
         'language',
-        'region',
-        'city',
-        'barangay',
         'profile_completed',
+        'is_admin',
+        'prefer_anonymous_voting',
+        'mute_comment_notifications',
+        'mute_like_notifications',
         'last_login_at',
     ];
 
@@ -56,10 +62,24 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'profile_completed' => 'boolean',
+            'is_admin' => 'boolean',
+            'prefer_anonymous_voting' => 'boolean',
+            'mute_comment_notifications' => 'boolean',
+            'mute_like_notifications' => 'boolean',
             'last_login_at' => 'datetime',
             'password' => 'hashed',
         ];
     }
+
+    /**
+     * The name of the "created at" column.
+     */
+    const CREATED_AT = 'createdAt';
+
+    /**
+     * The name of the "updated at" column.
+     */
+    const UPDATED_AT = 'updatedAt';
 
     /**
      * Relationships
@@ -82,5 +102,10 @@ class User extends Authenticatable
     public function comments()
     {
         return $this->hasMany(Comment::class);
+    }
+
+    public function posts()
+    {
+        return $this->hasMany(Post::class);
     }
 }

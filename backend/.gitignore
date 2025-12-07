@@ -9,6 +9,8 @@
 .env
 .env.backup
 .env.production
+.env.local
+.env.*.local
 .phpactor.json
 .phpunit.result.cache
 Homestead.json
@@ -18,6 +20,25 @@ yarn-error.log
 /auth.json
 /.fleet
 /.idea
-/.nova
 /.vscode
+/.nova
 /.zed
+
+# Temporary files
+NUL
+*.sqlite
+*.sqlite-journal
+databasedatabase.sqlite
+check-*.php
+verify-*.php
+cleanup-*.php
+
+# Logs
+*.log
+/storage/logs/*.log
+
+# Environment variable documentation with sensitive data
+*_ENV*.md
+*_SETUP*.md
+RESEND*.md
+EMAIL*.md

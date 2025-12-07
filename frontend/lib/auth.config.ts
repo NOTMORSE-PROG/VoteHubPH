@@ -7,6 +7,7 @@ import bcrypt from 'bcryptjs'
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
+  secret: process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET,
   providers: [
     // Google OAuth Provider
     GoogleProvider({
@@ -50,6 +51,7 @@ export const authOptions: NextAuthOptions = {
           throw new Error('Invalid credentials')
         }
 
+        // Return user object - PrismaAdapter will create session automatically
         return {
           id: user.id,
           email: user.email,
@@ -61,7 +63,7 @@ export const authOptions: NextAuthOptions = {
   ],
 
   session: {
-    strategy: 'jwt',
+    strategy: 'jwt', // Use JWT for CredentialsProvider compatibility
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
 
@@ -69,36 +71,79 @@ export const authOptions: NextAuthOptions = {
     signIn: '/login',
     signOut: '/',
     error: '/login',
-    newUser: '/complete-profile', // Redirect new SSO users to profile completion
+    newUser: '/browse', // Redirect new users directly to browse
   },
 
   callbacks: {
-    async jwt({ token, user, account, trigger }) {
+    async jwt({ token, user, trigger, session }) {
+      // JWT callback is still called for middleware even with database sessions
+      // Populate token for middleware to use
       if (user) {
+        // Initial sign-in - populate token with user data
         token.id = user.id
-        if (account?.provider) {
-          token.provider = account.provider
+        token.email = user.email
+        token.name = user.name
+        
+        const dbUser = await prisma.user.findUnique({
+          where: { id: user.id as string },
+          select: {
+            provider: true,
+            profileCompleted: true
+          }
+        })
+
+        token.provider = dbUser?.provider || 'credentials'
+        token.profileCompleted = dbUser?.profileCompleted || false
+      } else if (!token.id && !token.email) {
+        // With database sessions, on subsequent requests, we need to get user from session
+        // But since we don't have access to session here, we'll populate from token if available
+        // If token is empty, try to get from database using the session token
+        // This is a fallback - the token should be populated on first request
+        return token
+      } else if (token?.email && (!token.id || !token.name)) {
+        // Token has email but missing other fields - refresh from database
+        const dbUser = await prisma.user.findUnique({
+          where: { email: token.email as string },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            provider: true,
+            profileCompleted: true
+          }
+        })
+        
+        if (dbUser) {
+          token.id = dbUser.id
+          token.email = dbUser.email
+          token.name = dbUser.name
+          token.provider = dbUser.provider || 'credentials'
+          token.profileCompleted = dbUser.profileCompleted || false
         }
       }
-
-      // Always fetch the latest profileCompleted status
-      if (token.id) {
-        const dbUser = await prisma.user.findUnique({
-          where: { id: token.id as string },
-          select: { profileCompleted: true }
-        })
-        token.profileCompleted = dbUser?.profileCompleted || false
+      
+      // Update token when session is updated
+      if (trigger === 'update' && session) {
+        token.id = session.user.id
+        token.email = session.user.email
+        token.name = session.user.name
+        token.provider = session.user.provider
+        token.profileCompleted = session.user.profileCompleted
       }
-
+      
       return token
     },
 
     async session({ session, token }) {
-      if (token && session.user) {
+      // With JWT sessions, token is always available
+      if (token) {
         session.user.id = token.id as string
-        session.user.provider = token.provider as string
-        session.user.profileCompleted = token.profileCompleted as boolean
+        session.user.email = token.email as string
+        session.user.name = token.name as string
+        session.user.provider = token.provider
+        session.user.profileCompleted = token.profileCompleted
       }
+      
       return session
     },
 
@@ -135,6 +180,15 @@ export const authOptions: NextAuthOptions = {
       }
 
       return true
+    },
+
+    async redirect({ url, baseUrl }) {
+      // If redirecting to a URL on our domain, use it
+      if (url.startsWith(baseUrl)) {
+        return url
+      }
+      // After OAuth callback, redirect directly to browse
+      return `${baseUrl}/browse`
     }
   },
 

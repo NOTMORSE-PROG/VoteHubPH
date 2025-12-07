@@ -3,6 +3,9 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth.config"
 import { prisma } from "@/lib/prisma"
 
+// Force dynamic rendering since we use getServerSession which uses headers()
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   try {
     const session = await getServerSession(authOptions)
@@ -18,9 +21,6 @@ export async function GET() {
         id: true,
         name: true,
         email: true,
-        region: true,
-        city: true,
-        barangay: true,
         createdAt: true,
       },
     })
@@ -40,11 +40,6 @@ export async function GET() {
     const userData = {
       name: user.name || "User",
       email: user.email,
-      location: {
-        barangay: user.barangay || undefined,
-        city: user.city || undefined,
-        region: user.region || undefined,
-      },
       joinedDate,
       votedCandidates: [],
       comments: [],

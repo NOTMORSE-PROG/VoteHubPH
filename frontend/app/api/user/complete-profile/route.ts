@@ -3,11 +3,14 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth.config'
 import { prisma } from '@/lib/prisma'
 
+// Force dynamic rendering since we use getServerSession which uses headers()
+export const dynamic = 'force-dynamic'
+
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
 
-    if (\!session || \!session.user?.email) {
+    if (!session || !session.user?.email) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -16,7 +19,7 @@ export async function POST(req: NextRequest) {
 
     const { name, region, city, barangay } = await req.json()
 
-    if (\!name || \!region || \!city) {
+    if (!name || !region || !city) {
       return NextResponse.json(
         { error: 'Name, region, and city are required' },
         { status: 400 }

@@ -2,9 +2,9 @@
 
 import type React from "react"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
-import { signIn } from "next-auth/react"
+import { useState, useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { signIn, useSession } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -14,10 +14,28 @@ import { T } from "@/components/auto-translate"
 
 export default function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const { data: session, status, update } = useSession()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (status === "authenticated" && session) {
+      const callbackUrl = searchParams.get("callbackUrl") || "/browse"
+      router.push(callbackUrl)
+    }
+  }, [status, session, router, searchParams])
+
+  // Pre-fill email from URL parameter (after OTP verification)
+  useEffect(() => {
+    const emailParam = searchParams.get("email")
+    if (emailParam) {
+      setEmail(emailParam)
+    }
+  }, [searchParams])
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -35,7 +53,24 @@ export default function LoginPage() {
         setError("Invalid email or password")
         setIsLoading(false)
       } else {
-        router.push("/browse")
+        // Wait for session to be established and created in database
+        // With database sessions, we need to wait for the session to be created
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        
+        // Force session refresh to ensure it's loaded from database
+        await update()
+        
+        // Wait a bit more for session to be fully ready
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        
+        // Refresh router to ensure session is loaded in middleware
+        router.refresh()
+        
+        // Wait one more time for everything to sync
+        await new Promise(resolve => setTimeout(resolve, 1000))
+
+        // Use window.location for hard redirect to ensure session cookie is sent
+        window.location.href = "/browse"
       }
     } catch (err) {
       setError("An error occurred. Please try again.")
@@ -63,7 +98,7 @@ export default function LoginPage() {
       <div className="absolute top-0 left-0 right-0 border-b bg-card/50 backdrop-blur-sm">
         <div className="container mx-auto px-4 py-6">
           <div className="flex items-center justify-between">
-            <Button type="button" variant="ghost" size="sm" onClick={() => router.back()} className="gap-2">
+            <Button type="button" variant="ghost" size="sm" onClick={() => router.push("/")} className="gap-2">
               <ArrowLeft className="h-4 w-4" />
               Back
             </Button>

@@ -1,25 +1,21 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
 import { LocationSelector } from "@/components/location-selector"
 import { GovernmentNav } from "@/components/government-nav"
-import { PositionFilter } from "@/components/position-filter"
-import { PartyFilter } from "@/components/party-filter"
-import { StatusFilter } from "@/components/status-filter"
+import { ScrollToTop } from "@/components/scroll-to-top"
 import { CandidateCard } from "@/components/candidate-card"
 import { PartyListCard } from "@/components/partylist-card"
-import { ScrollToTop } from "@/components/scroll-to-top"
-import { mockCandidates, getCandidatesByLocation, partyListGroups } from "@/lib/candidate-data"
-import { getBarangaysByCity, getCityById, getRegionById, regions, cities } from "@/lib/ph-data"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Search,
   Users,
-  ArrowLeft,
   ChevronLeft,
   ChevronRight,
   Plus,
@@ -27,10 +23,13 @@ import {
   Calendar,
   Settings,
   User,
+  Loader2,
+  ArrowLeft,
+  RefreshCw,
 } from "lucide-react"
 import Link from "next/link"
-import { T } from "@/components/auto-translate"
-import { useTranslate } from "@/lib/use-translate"
+import Image from "next/image"
+import { electionSchedule } from "@/lib/election-data"
 
 const CANDIDATES_PER_PAGE = 9
 
@@ -42,161 +41,349 @@ export default function BrowsePage() {
   const viewParam = searchParams.get("view") || "candidates"
 
   const [governmentLevel, setGovernmentLevel] = useState<"local" | "national" | "partylist">(
-    tabParam as "local" | "national" | "partylist",
+    (tabParam as "local" | "national" | "partylist") || "local",
   )
   const [view, setView] = useState<"candidates" | "statistics" | "elections">(
-    viewParam as "candidates" | "statistics" | "elections",
+    (viewParam === "statistics" ? "candidates" : viewParam) as "candidates" | "statistics" | "elections",
   )
+  // Load selected location from localStorage on mount
   const [selectedLocation, setSelectedLocation] = useState<{
     regionId: string
     cityId: string
+    districtId?: string
     barangayId: string
-  } | null>(null)
-  const [selectedPosition, setSelectedPosition] = useState<string>("all")
-  const [selectedParty, setSelectedParty] = useState<string>("all")
-  const [selectedStatus, setSelectedStatus] = useState<string>("all")
-  const [selectedSector, setSelectedSector] = useState<string>("all")
-  const [searchQuery, setSearchQuery] = useState("")
-  const [currentPage, setCurrentPage] = useState(1)
-  const [isLoadingUserLocation, setIsLoadingUserLocation] = useState(false)
-
-  // Auto-fill location from user profile
-  useEffect(() => {
-    const loadUserLocation = async () => {
-      if (status === "authenticated" && governmentLevel === "local" && !selectedLocation) {
-        setIsLoadingUserLocation(true)
+  } | null>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('browse_selected_location')
+      if (saved) {
         try {
-          const response = await fetch("/api/user/profile")
-          if (response.ok) {
-            const userData = await response.json()
-
-            if (userData.location.region && userData.location.city) {
-              // Find region ID
-              const userRegion = regions.find(r => r.name === userData.location.region)
-              if (userRegion) {
-                // Find city ID
-                const userCity = cities.find(c => c.name === userData.location.city && c.regionId === userRegion.id)
-                if (userCity) {
-                  // Find barangay ID
-                  const barangays = getBarangaysByCity(userCity.id)
-                  const userBarangay = userData.location.barangay
-                    ? barangays.find(b => b.name === userData.location.barangay)
-                    : barangays[0] // Default to first barangay if not specified
-
-                  if (userBarangay) {
-                    setSelectedLocation({
-                      regionId: userRegion.id,
-                      cityId: userCity.id,
-                      barangayId: userBarangay.id,
-                    })
-                  }
-                }
-              }
-            }
-          }
-        } catch (error) {
-          console.error("Failed to load user location:", error)
-        } finally {
-          setIsLoadingUserLocation(false)
+          return JSON.parse(saved)
+        } catch (e) {
+          return null
         }
       }
     }
+    return null
+  })
+  const [selectedStatus, setSelectedStatus] = useState<string>("all")
+  const [selectedPosition, setSelectedPosition] = useState<string>("all")
+  const [searchQuery, setSearchQuery] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [isLoadingUserLocation, setIsLoadingUserLocation] = useState(false)
+  const [platformStats, setPlatformStats] = useState<any>(null)
+  const [isLoadingStats, setIsLoadingStats] = useState(false)
+  const [posts, setPosts] = useState<any[]>([])
+  const [partyLists, setPartyLists] = useState<any[]>([])
+  const [isLoadingPosts, setIsLoadingPosts] = useState(false)
+  const [isLoadingPartyLists, setIsLoadingPartyLists] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const intervalRef = useRef<NodeJS.Timeout | null>(null)
+  const lastFetchRef = useRef<number>(0)
+  const isInitialMount = useRef(true)
+  const isAutoDetecting = useRef(false)
 
-    loadUserLocation()
-  }, [status, governmentLevel, selectedLocation])
+  // Fetch platform statistics
+  useEffect(() => {
+    const fetchStats = async () => {
+      if (view === "statistics") {
+        setIsLoadingStats(true)
+        try {
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/statistics/platform`)
+          if (response.ok) {
+            const data = await response.json()
+            setPlatformStats(data)
+          }
+        } catch (error) {
+          console.error("Failed to load statistics:", error)
+        } finally {
+          setIsLoadingStats(false)
+        }
+      }
+    }
+    fetchStats()
+  }, [view])
+
+  // Removed auto-fill location - user must manually select or use auto-detect button
+
+  // Restore location from localStorage on mount and when window regains focus
+  // This ensures location is restored when navigating back from profile pages
+  const restoreLocationFromStorage = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('browse_selected_location')
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved)
+          // Only update if it's different to avoid unnecessary re-renders
+          setSelectedLocation(prev => {
+            if (!prev || 
+                prev.regionId !== parsed.regionId ||
+                prev.cityId !== parsed.cityId ||
+                prev.barangayId !== parsed.barangayId) {
+              return parsed
+            }
+            return prev
+          })
+        } catch (e) {
+          // Invalid JSON, ignore
+        }
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    // Restore on mount
+    restoreLocationFromStorage()
+    
+    // Restore when window regains focus (user comes back to tab)
+    const handleFocus = () => {
+      restoreLocationFromStorage()
+    }
+    
+    window.addEventListener('focus', handleFocus)
+    return () => {
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [restoreLocationFromStorage])
 
   useEffect(() => {
     router.push(`/browse?tab=${governmentLevel}&view=${view}`, { scroll: false })
   }, [governmentLevel, view, router])
 
-  const getCandidates = () => {
+  const fetchPosts = useCallback(async (silent = false) => {
+    if (view !== "candidates") return
+    
+    if (!silent) {
+      setIsLoadingPosts(true)
+    } else {
+      setIsRefreshing(true)
+    }
+    
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/posts/approved`, {
+        credentials: "include",
+        cache: 'default', // Allow browser caching
+      })
+      if (response.ok) {
+        const data = await response.json()
+        // Ensure data is an array before setting it
+        if (Array.isArray(data)) {
+          setPosts(data)
+          lastFetchRef.current = Date.now()
+        } else {
+          console.error("Invalid response format - expected array, got:", data)
+          setPosts([])
+        }
+      } else {
+        // Try to parse error message for debugging
+        try {
+          const errorData = await response.json()
+          console.error("Failed to load posts:", errorData)
+        } catch (e) {
+          console.error("Failed to load posts: HTTP", response.status)
+        }
+        setPosts([])
+      }
+    } catch (error) {
+      console.error("Failed to load posts:", error)
+      setPosts([])
+    } finally {
+      setIsLoadingPosts(false)
+      setIsRefreshing(false)
+    }
+  }, [view])
+
+  const fetchPartyLists = useCallback(async (silent = false) => {
+    if (view !== "candidates" || governmentLevel !== "partylist") return
+    
+    if (!silent) {
+      setIsLoadingPartyLists(true)
+    } else {
+      setIsRefreshing(true)
+    }
+    
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/partylists`, {
+        credentials: "include",
+        cache: 'no-store',
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setPartyLists(data)
+        lastFetchRef.current = Date.now()
+      } else {
+        setPartyLists([])
+      }
+    } catch (error) {
+      console.error("Failed to load party lists:", error)
+      setPartyLists([])
+    } finally {
+      setIsLoadingPartyLists(false)
+      setIsRefreshing(false)
+    }
+  }, [view, governmentLevel])
+
+  // Initial fetch and fetch on view/governmentLevel/location change
+  useEffect(() => {
     if (governmentLevel === "partylist") {
+      fetchPartyLists()
+    } else {
+      fetchPosts()
+    }
+    isInitialMount.current = false
+  }, [view, governmentLevel, selectedLocation, fetchPosts, fetchPartyLists])
+
+  // Auto-refresh every 60 seconds when tab is visible (reduced from 30s for better performance)
+  useEffect(() => {
+    if (view !== "candidates") return
+
+    const setupAutoRefresh = () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+      }
+
+      intervalRef.current = setInterval(() => {
+        // Only refresh if tab is visible
+        if (document.visibilityState === 'visible') {
+          const now = Date.now()
+          // Don't refresh if we just fetched (within last 10 seconds)
+          if (now - lastFetchRef.current > 10000) {
+            if (governmentLevel === "partylist") {
+              fetchPartyLists(true) // Silent refresh
+            } else {
+              fetchPosts(true) // Silent refresh
+            }
+          }
+        }
+      }, 60000) // 60 seconds (reduced frequency for better performance)
+    }
+
+    setupAutoRefresh()
+
+    // Handle visibility change
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && view === "candidates") {
+        // Refresh immediately when tab becomes visible (if enough time has passed)
+        const now = Date.now()
+        if (now - lastFetchRef.current > 5000) {
+          if (governmentLevel === "partylist") {
+            fetchPartyLists(true)
+          } else {
+            fetchPosts(true)
+          }
+        }
+        setupAutoRefresh()
+      } else {
+        // Clear interval when tab is hidden
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current)
+        }
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [view, governmentLevel, fetchPosts, fetchPartyLists])
+
+  const handleManualRefresh = () => {
+    if (governmentLevel === "partylist") {
+      fetchPartyLists(false)
+    } else {
+      fetchPosts(false)
+    }
+  }
+
+  // Memoize filtered posts to prevent infinite re-renders
+  const filteredPosts = useMemo(() => {
+    // Ensure posts is always an array
+    if (!Array.isArray(posts)) {
       return []
     }
-
-    if (governmentLevel === "national") {
-      let nationalCandidates = mockCandidates.filter((c) => c.locationType === "national")
-
-      if (selectedPosition !== "all") {
-        nationalCandidates = nationalCandidates.filter((c) => c.positionId === selectedPosition)
+    return posts.filter((post) => {
+      // Filter by government level
+      if (governmentLevel === "national" && post.level !== "National") {
+        return false
       }
-      if (selectedParty !== "all") {
-        nationalCandidates = nationalCandidates.filter((c) => c.partyId === selectedParty)
-      }
-      if (selectedStatus !== "all") {
-        nationalCandidates = nationalCandidates.filter((c) => c.status === selectedStatus)
+      if (governmentLevel === "local" && post.level !== "Local (City/Municipality)" && post.level !== "Barangay") {
+        return false
       }
 
-      return nationalCandidates
+      // Filter by location if selected (for local level)
+      if (governmentLevel === "local" && selectedLocation) {
+        // If user selected a barangay, only show barangay-level posts for that specific barangay
+        if (selectedLocation.barangayId && selectedLocation.barangayId !== "") {
+          // Must be barangay level and match the selected barangay
+          if (post.level !== "Barangay" || !post.barangay_id || post.barangay_id.toString() !== selectedLocation.barangayId) {
+            return false
+          }
+        } 
+        // If user only selected a city (no barangay), show:
+        // - Local (City/Municipality) posts for that city
+        // - All Barangay posts within that city
+        else if (selectedLocation.cityId && selectedLocation.cityId !== "") {
+          // Post must have city_id matching selected city
+          // If post doesn't have city_id (old posts), exclude it
+          if (!post.city_id) {
+            return false
+          }
+          // Convert both to strings for comparison to handle number/string mismatches
+          const postCityId = String(post.city_id || "")
+          const selectedCityId = String(selectedLocation.cityId || "")
+          if (postCityId !== selectedCityId) {
+            return false
+          }
+        }
+      }
+
+      // Filter by search query
+    if (searchQuery && !post.name.toLowerCase().includes(searchQuery.toLowerCase())) {
+      return false
+    }
+      
+      // Filter by status
+    if (selectedStatus !== "all" && post.status !== selectedStatus) {
+      return false
     }
 
-    if (!selectedLocation) return []
-
-    const barangayCandidates = getCandidatesByLocation(selectedLocation.barangayId, "barangay")
-    const cityCandidates = getCandidatesByLocation(selectedLocation.cityId, "city")
-    let allLocalCandidates = [...barangayCandidates, ...cityCandidates]
-
-    if (selectedPosition !== "all") {
-      allLocalCandidates = allLocalCandidates.filter((c) => c.positionId === selectedPosition)
+    // Filter by position (for national level)
+    if (governmentLevel === "national" && selectedPosition !== "all" && post.position !== selectedPosition) {
+      return false
     }
-    if (selectedParty !== "all") {
-      allLocalCandidates = allLocalCandidates.filter((c) => c.partyId === selectedParty)
+      
+    return true
+  })
+  }, [posts, governmentLevel, selectedLocation, searchQuery, selectedStatus, selectedPosition])
+
+  const filteredPartyLists = partyLists.filter((pl) => {
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase()
+      return (
+        pl.name.toLowerCase().includes(query) ||
+        (pl.acronym && pl.acronym.toLowerCase().includes(query)) ||
+        (pl.sector && pl.sector.toLowerCase().includes(query))
+      )
     }
-    if (selectedStatus !== "all") {
-      allLocalCandidates = allLocalCandidates.filter((c) => c.status === selectedStatus)
-    }
-
-    return allLocalCandidates
-  }
-
-  const allCandidates = getCandidates().filter(
-    (candidate) =>
-      candidate.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      candidate.platform.some((p) => p.toLowerCase().includes(searchQuery.toLowerCase())),
-  )
-
-  const filteredPartyLists = partyListGroups.filter((pl) => {
-    const matchesSearch =
-      pl.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      pl.sector.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      pl.description.toLowerCase().includes(searchQuery.toLowerCase())
-
-    const matchesSector = selectedSector === "all" || pl.sector === selectedSector
-
-    return matchesSearch && matchesSector
+    return true
   })
 
-  const totalPages = Math.ceil(allCandidates.length / CANDIDATES_PER_PAGE)
-  const startIndex = (currentPage - 1) * CANDIDATES_PER_PAGE
-  const endIndex = startIndex + CANDIDATES_PER_PAGE
-  const candidates = allCandidates.slice(startIndex, endIndex)
-
-  const handleFilterChange = (setter: (value: string) => void) => (value: string) => {
-    setter(value)
-    setCurrentPage(1)
-  }
-
-  const locationInfo = selectedLocation
-    ? {
-        region: getRegionById(selectedLocation.regionId),
-        city: getCityById(selectedLocation.cityId),
-        barangay: getBarangaysByCity(selectedLocation.cityId).find((b) => b.id === selectedLocation.barangayId),
-      }
-    : null
-
-  const sectors = ["all", ...Array.from(new Set(partyListGroups.map((pl) => pl.sector)))]
-
-  const scrollToTop = () => {
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    })
-  }
-
-  const handlePageChange = (newPage: number) => {
-    setCurrentPage(newPage)
-    scrollToTop()
-  }
+  const totalPages = Math.ceil(
+    governmentLevel === "partylist" 
+      ? filteredPartyLists.length / CANDIDATES_PER_PAGE
+      : filteredPosts.length / CANDIDATES_PER_PAGE
+  )
+  const paginatedPosts = filteredPosts.slice(
+    (currentPage - 1) * CANDIDATES_PER_PAGE,
+    currentPage * CANDIDATES_PER_PAGE,
+  )
+  const paginatedPartyLists = filteredPartyLists.slice(
+    (currentPage - 1) * CANDIDATES_PER_PAGE,
+    currentPage * CANDIDATES_PER_PAGE,
+  )
 
   return (
     <div className="min-h-screen bg-background">
@@ -208,32 +395,65 @@ export default function BrowsePage() {
             <Link href="/">
               <Button variant="ghost" size="sm">
                 <ArrowLeft className="h-4 w-4 mr-2" />
-                <T>Back</T>
+                Back
               </Button>
             </Link>
             <div className="flex items-center gap-2">
-              <Link href="/posts/create">
-                <Button size="sm" className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  <T>Create Post</T>
+              {view === "candidates" && (
+                <Button
+                  onClick={handleManualRefresh}
+                  disabled={isRefreshing || isLoadingPosts || isLoadingPartyLists}
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  title={governmentLevel === "partylist" ? "Refresh party lists" : "Refresh candidates"}
+                >
+                  <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                  {isRefreshing ? 'Refreshing...' : 'Refresh'}
                 </Button>
-              </Link>
-              <Link href="/profile">
-                <Button variant="outline" size="sm">
-                  <Users className="h-4 w-4 mr-2" />
-                  <T>Profile</T>
-                </Button>
-              </Link>
-              <Link href="/settings">
-                <Button variant="ghost" size="icon" className="rounded-lg">
-                  <Settings className="h-5 w-5" />
-                </Button>
-              </Link>
-              <Link href="/profile">
-                <Button variant="ghost" size="icon" className="rounded-lg">
-                  <User className="h-5 w-5" />
-                </Button>
-              </Link>
+              )}
+              <Button
+                size="sm"
+                className="gap-2"
+                onClick={() => {
+                  if (status === "authenticated") {
+                    router.push(`/posts/create?tab=${governmentLevel}`)
+                  } else {
+                    router.push("/login")
+                  }
+                }}
+              >
+                <Plus className="h-4 w-4" />
+                Create Post
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-lg"
+                onClick={() => {
+                  if (status === "authenticated") {
+                    router.push("/profile")
+                  } else {
+                    router.push("/login")
+                  }
+                }}
+              >
+                <User className="h-5 w-5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-lg"
+                onClick={() => {
+                  if (status === "authenticated") {
+                    router.push("/settings")
+                  } else {
+                    router.push("/login")
+                  }
+                }}
+              >
+                <Settings className="h-5 w-5" />
+              </Button>
             </div>
           </div>
         </div>
@@ -252,17 +472,18 @@ export default function BrowsePage() {
             className="gap-2"
           >
             <Users className="h-4 w-4" />
-            <T>Candidates</T>
+            Candidates
           </Button>
-          <Button
+          {/* Statistics tab hidden for now */}
+          {/* <Button
             variant={view === "statistics" ? "default" : "ghost"}
             size="sm"
             onClick={() => setView("statistics")}
             className="gap-2"
           >
             <BarChart3 className="h-4 w-4" />
-            <T>Statistics</T>
-          </Button>
+            Statistics
+          </Button> */}
           <Button
             variant={view === "elections" ? "default" : "ghost"}
             size="sm"
@@ -270,149 +491,164 @@ export default function BrowsePage() {
             className="gap-2"
           >
             <Calendar className="h-4 w-4" />
-            <T>Elections</T>
+            Elections
           </Button>
         </div>
 
         {view === "candidates" && (
-          <>
-            {governmentLevel === "partylist" ? (
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <h2 className="text-2xl font-bold"><T>Party-List Groups</T></h2>
-                  <p className="text-sm text-muted-foreground">
-                    <T>Browse party-list organizations representing various sectors of Philippine society</T>
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap gap-3 items-end">
-                  <div className="flex-1 min-w-[200px]">
-                    <label className="text-sm font-medium mb-2 block"><T>Sector</T></label>
-                    <select
-                      value={selectedSector}
-                      onChange={(e) => handleFilterChange(setSelectedSector)(e.target.value)}
-                      className="w-full h-10 px-3 rounded-md border border-input bg-background"
-                    >
-                      <option value="all"><T>All Sectors</T></option>
-                      {sectors.slice(1).map((sector) => (
-                        <option key={sector} value={sector}>
-                          {sector}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search party-list groups..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-
-                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredPartyLists.map((partyList) => (
-                    <PartyListCard key={partyList.id} partyList={partyList} currentTab={governmentLevel} />
-                  ))}
-                </div>
+          <div className="space-y-6">
+            {governmentLevel === "local" && (
+              <div className="space-y-4">
+                <LocationSelector
+                  value={selectedLocation}
+                  onChange={(location) => {
+                    setSelectedLocation(location)
+                    // Only save to localStorage if it's a manual selection (not auto-detect)
+                    if (!isAutoDetecting.current && typeof window !== 'undefined') {
+                      localStorage.setItem('browse_selected_location', JSON.stringify(location))
+                    }
+                    setCurrentPage(1)
+                  }}
+                  onLocationChange={(location) => {
+                    // This is called when auto-detect is clicked (clears location)
+                    // Mark that we're in auto-detect mode
+                    isAutoDetecting.current = true
+                    // Clear localStorage when auto-detect is used
+                    if (typeof window !== 'undefined') {
+                      localStorage.removeItem('browse_selected_location')
+                    }
+                    if (!location || (!location.cityId && !location.barangayId)) {
+                      setSelectedLocation(null)
+                    } else {
+                      // Auto-detect sets location temporarily
+                      setSelectedLocation(location)
+                    }
+                    setCurrentPage(1)
+                    // Reset flag after a short delay
+                    setTimeout(() => {
+                      isAutoDetecting.current = false
+                    }, 1000)
+                  }}
+                  isLoading={isLoadingUserLocation}
+                />
               </div>
-            ) : (
-              <div className="space-y-6">
-                {governmentLevel === "local" && (
-                  <div className="space-y-4">
-                    <LocationSelector onLocationChange={setSelectedLocation} />
+            )}
 
-                    {selectedLocation && locationInfo && (
-                      <div className="p-3 bg-muted rounded-lg">
-                        <p className="text-xs font-medium"><T>Your Location</T></p>
-                        <p className="text-xs text-muted-foreground">
-                          {locationInfo.barangay?.name}, {locationInfo.city?.name}, {locationInfo.region?.name}
-                        </p>
-                      </div>
-                    )}
+            {governmentLevel === "local" && !selectedLocation && (
+              <div className="text-center py-12 bg-muted/50 rounded-lg">
+                <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                <h3 className="text-lg font-semibold mb-2">Select Your Location</h3>
+                <p className="text-sm text-muted-foreground">
+                  Please select your region, city, and barangay to view local candidates
+                </p>
+              </div>
+            )}
+
+            {(governmentLevel === "national" || governmentLevel === "partylist" || selectedLocation) && (
+              <>
+                <div className="flex gap-3">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder={
+                        governmentLevel === "partylist"
+                          ? "Search party-list groups by name, acronym, or sector..."
+                          : "Search candidates by name or platform..."
+                      }
+                      value={searchQuery}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value)
+                        setCurrentPage(1)
+                      }}
+                      className="pl-10"
+                    />
                   </div>
-                )}
+                  {governmentLevel === "national" && (
+                    <Select
+                      value={selectedPosition}
+                      onValueChange={(value) => {
+                        setSelectedPosition(value)
+                        setCurrentPage(1)
+                      }}
+                    >
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="All Positions" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Positions</SelectItem>
+                        <SelectItem value="President">President</SelectItem>
+                        <SelectItem value="Vice President">Vice President</SelectItem>
+                        <SelectItem value="Senator">Senator</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
 
-                {(governmentLevel === "national" || selectedLocation) && (
-                  <div className="flex flex-wrap gap-3 items-end">
-                    <div className="flex-1 min-w-[200px]">
-                      <PositionFilter
-                        level={governmentLevel === "national" ? "national" : "barangay"}
-                        value={selectedPosition}
-                        onValueChange={handleFilterChange(setSelectedPosition)}
-                      />
-                    </div>
-
-                    <div className="flex-1 min-w-[200px]">
-                      <PartyFilter value={selectedParty} onValueChange={handleFilterChange(setSelectedParty)} />
-                    </div>
-
-                    <div className="flex-1 min-w-[200px]">
-                      <StatusFilter value={selectedStatus} onValueChange={handleFilterChange(setSelectedStatus)} />
-                    </div>
-                  </div>
-                )}
-
-                {governmentLevel === "local" && !selectedLocation && (
-                  <div className="text-center py-12 bg-muted/50 rounded-lg">
-                    <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                    <h3 className="text-lg font-semibold mb-2"><T>Select Your Location</T></h3>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-xl font-bold">
+                      {governmentLevel === "national"
+                        ? "National Candidates"
+                        : governmentLevel === "partylist"
+                        ? "Party-List Groups"
+                        : "Local Candidates"}
+                    </h2>
                     <p className="text-sm text-muted-foreground">
-                      <T>Choose your region, city, and barangay to see local candidates</T>
+                      {governmentLevel === "partylist"
+                        ? `${filteredPartyLists.length} groups found`
+                        : `${filteredPosts.length} candidates found`}
                     </p>
                   </div>
-                )}
 
-                {(governmentLevel === "national" || selectedLocation) && (
-                  <>
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search candidates by name or platform..."
-                        value={searchQuery}
-                        onChange={(e) => {
-                          setSearchQuery(e.target.value)
-                          setCurrentPage(1)
-                        }}
-                        className="pl-10"
-                      />
-                    </div>
+                  {/* Create Post Button */}
+                  <Button
+                    className="gap-2"
+                    onClick={() => {
+                      if (status === "authenticated") {
+                        router.push(`/posts/create?tab=${governmentLevel}`)
+                      } else {
+                        router.push("/login")
+                      }
+                    }}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Create Candidate Post
+                  </Button>
 
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <h2 className="text-xl font-bold">
-                          {governmentLevel === "national" ? <T>National Candidates</T> : <T>Local Candidates</T>}
-                        </h2>
-                        <p className="text-sm text-muted-foreground">
-                          {allCandidates.length} <T>candidates found</T>
-                        </p>
-                      </div>
-
-                      {candidates.length === 0 ? (
+                  {/* Party Lists Grid */}
+                  {governmentLevel === "partylist" ? (
+                    <>
+                      {isLoadingPartyLists ? (
+                        <div className="flex justify-center items-center py-12">
+                          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                        </div>
+                      ) : filteredPartyLists.length === 0 ? (
                         <div className="text-center py-12 bg-muted/50 rounded-lg">
-                          <p className="text-muted-foreground"><T>No candidates found matching your criteria</T></p>
+                          <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                          <h3 className="text-lg font-semibold mb-2">No Party Lists Yet</h3>
+                          <p className="text-sm text-muted-foreground mb-4">
+                            Party lists will appear here once candidates are added to them.
+                          </p>
                         </div>
                       ) : (
                         <>
                           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {candidates.map((candidate) => (
-                              <CandidateCard key={candidate.id} candidate={candidate} currentTab={governmentLevel} />
+                            {paginatedPartyLists.map((partyList) => (
+                              <PartyListCard key={partyList.id} partyList={partyList} currentTab={governmentLevel} />
                             ))}
                           </div>
 
+                          {/* Pagination */}
                           {totalPages > 1 && (
                             <div className="flex items-center justify-center gap-2 pt-4">
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+                                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                                 disabled={currentPage === 1}
                               >
                                 <ChevronLeft className="h-4 w-4" />
-                                <T>Previous</T>
+                                Previous
                               </Button>
                               <div className="flex items-center gap-1">
                                 {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
@@ -420,7 +656,7 @@ export default function BrowsePage() {
                                     key={page}
                                     variant={currentPage === page ? "default" : "outline"}
                                     size="sm"
-                                    onClick={() => handlePageChange(page)}
+                                    onClick={() => setCurrentPage(page)}
                                     className="w-10"
                                   >
                                     {page}
@@ -430,318 +666,204 @@ export default function BrowsePage() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+                                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
                                 disabled={currentPage === totalPages}
                               >
-                                <T>Next</T>
+                                Next
                                 <ChevronRight className="h-4 w-4" />
                               </Button>
                             </div>
                           )}
                         </>
                       )}
-                    </div>
-                  </>
-                )}
-              </div>
+                    </>
+                  ) : (
+                    /* Candidates Grid */
+                    <>
+                      {isLoadingPosts ? (
+                        <div className="flex justify-center items-center py-12">
+                          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                        </div>
+                      ) : filteredPosts.length === 0 ? (
+                        <div className="text-center py-12 bg-muted/50 rounded-lg">
+                          <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                          <h3 className="text-lg font-semibold mb-2">No Candidates Yet</h3>
+                          <p className="text-sm text-muted-foreground mb-4">
+                            Be the first to create a candidate post for your area!
+                          </p>
+                          <Button
+                            onClick={() => {
+                              if (status === "authenticated") {
+                                router.push(`/posts/create?tab=${governmentLevel}`)
+                              } else {
+                                router.push("/login")
+                              }
+                            }}
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Create Post
+                          </Button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {paginatedPosts.map((post) => (
+                              <CandidateCard key={post.id} post={post} currentTab={governmentLevel} />
+                            ))}
+                          </div>
+
+                          {/* Pagination */}
+                          {totalPages > 1 && (
+                            <div className="flex items-center justify-center gap-2 pt-4">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                                disabled={currentPage === 1}
+                              >
+                                <ChevronLeft className="h-4 w-4" />
+                                Previous
+                              </Button>
+                              <div className="flex items-center gap-1">
+                                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                                  <Button
+                                    key={page}
+                                    variant={currentPage === page ? "default" : "outline"}
+                                    size="sm"
+                                    onClick={() => setCurrentPage(page)}
+                                    className="w-10"
+                                  >
+                                    {page}
+                                  </Button>
+                                ))}
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                                disabled={currentPage === totalPages}
+                              >
+                                Next
+                                <ChevronRight className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+              </>
             )}
-          </>
+          </div>
         )}
 
-        {view === "statistics" && (
-          <div className="space-y-6">
+        {/* Statistics View - Hidden for now */}
+        {false && view === "statistics" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Platform Statistics</CardTitle>
+              <CardDescription>Overview of the VoteHubPH platform</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoadingStats ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin" />
+                </div>
+              ) : platformStats ? (
+                <div className="grid gap-4 md:grid-cols-3">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-2xl">{platformStats.platform?.total_users || 0}</CardTitle>
+                      <CardDescription>Total Users</CardDescription>
+                    </CardHeader>
+                  </Card>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-2xl">{platformStats.platform?.total_discussions || 0}</CardTitle>
+                      <CardDescription>Total Discussions</CardDescription>
+                    </CardHeader>
+                  </Card>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-2xl">{platformStats.platform?.total_votes || 0}</CardTitle>
+                      <CardDescription>Total Votes</CardDescription>
+                    </CardHeader>
+                  </Card>
+                </div>
+              ) : (
+                <p className="text-center text-gray-500">No statistics available</p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Elections View */}
+        {view === "elections" && (
+          <div className="space-y-4">
             <div className="space-y-2">
-              <h2 className="text-2xl font-bold"><T>Candidate Statistics</T></h2>
-              <p className="text-muted-foreground"><T>Insights and analytics about candidates and elections</T></p>
+              <h2 className="text-2xl font-bold">Election Schedule</h2>
+              <p className="text-muted-foreground text-sm">Upcoming elections and voting dates</p>
             </div>
-
-            {/* Top Trending Now */}
             <div className="space-y-3">
-              <h3 className="text-lg font-semibold"><T>Top Trending Now</T></h3>
-              <div className="grid md:grid-cols-3 gap-4">
-                <Card className="hover:shadow-md transition-shadow">
-                  <CardContent className="pt-6">
-                    <div className="text-sm font-medium text-muted-foreground mb-2"><T>Most Discussed Election</T></div>
-                    <div className="text-lg font-bold">Quezon City Mayor</div>
-                    <p className="text-xs text-muted-foreground mt-2">234 <T>discussions</T></p>
-                  </CardContent>
-                </Card>
-                <Card className="hover:shadow-md transition-shadow">
-                  <CardContent className="pt-6">
-                    <div className="text-sm font-medium text-muted-foreground mb-2"><T>Hottest Topic</T></div>
-                    <div className="text-lg font-bold">Infrastructure & Development</div>
-                    <p className="text-xs text-muted-foreground mt-2">567 <T>mentions</T></p>
-                  </CardContent>
-                </Card>
-                <Card className="hover:shadow-md transition-shadow">
-                  <CardContent className="pt-6">
-                    <div className="text-sm font-medium text-muted-foreground mb-2"><T>Most Viewed Candidate</T></div>
-                    <div className="text-lg font-bold">Ferdinand Marcos Jr.</div>
-                    <p className="text-xs text-muted-foreground mt-2">12,456 <T>views</T></p>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-
-            {/* Platform Statistics */}
-            <div className="space-y-3">
-              <h3 className="text-lg font-semibold"><T>Platform Statistics</T></h3>
-              <div className="grid md:grid-cols-2 gap-4">
-                <Card className="hover:shadow-md transition-shadow">
-                  <CardContent className="pt-6">
-                    <div className="text-sm font-medium text-muted-foreground mb-4"><T>Total Registered Politicians</T></div>
-                    <div className="text-4xl font-bold text-primary">1,247</div>
-                    <p className="text-xs text-muted-foreground mt-2"><T>Across all levels and positions</T></p>
-                  </CardContent>
-                </Card>
-                <Card className="hover:shadow-md transition-shadow">
-                  <CardContent className="pt-6">
-                    <div className="text-sm font-medium text-muted-foreground mb-4"><T>Total Discussions</T></div>
-                    <div className="text-4xl font-bold text-primary">8,934</div>
-                    <p className="text-xs text-muted-foreground mt-2"><T>Active community engagement</T></p>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-
-            <MockElectionResults />
-
-            {/* Regional Distribution */}
-            <div className="space-y-3">
-              <h3 className="text-lg font-semibold"><T>Candidate Distribution by Region</T></h3>
-              <div className="grid md:grid-cols-2 gap-4">
-                {[
-                  { region: "NCR", candidates: 234 },
-                  { region: "CALABARZON", candidates: 189 },
-                  { region: "Central Visayas", candidates: 167 },
-                  { region: "Davao Region", candidates: 145 },
-                  { region: "Central Luzon", candidates: 156 },
-                  { region: "Western Visayas", candidates: 134 },
-                ].map((item) => (
-                  <Card key={item.region}>
-                    <CardContent className="pt-6">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium">{item.region}</span>
-                        <span className="text-lg font-bold text-primary">{item.candidates}</span>
+              {electionSchedule
+                .sort((a, b) => a.date.getTime() - b.date.getTime())
+                .slice(0, 3)
+                .map((election) => (
+                  <Card key={election.id} className="hover:shadow-md transition-shadow">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Calendar className="h-4 w-4 text-primary" />
+                            <p className="font-semibold text-sm">{election.name}</p>
+                          </div>
+                          <p className="text-xs text-muted-foreground mb-2">
+                            {election.date.toLocaleDateString("en-US", {
+                              year: "numeric",
+                              month: "long",
+                              day: "numeric",
+                            })}
+                          </p>
+                          <p className="text-xs text-muted-foreground line-clamp-2">
+                            {election.description}
+                          </p>
+                        </div>
+                        <Badge variant={election.level === "national" ? "default" : "secondary"} className="ml-2">
+                          {election.level === "national" ? "National" : "Local"}
+                        </Badge>
                       </div>
-                      <div className="w-full bg-muted rounded-full h-2">
-                        <div
-                          className="bg-primary h-2 rounded-full"
-                          style={{ width: `${(item.candidates / 234) * 100}%` }}
-                        ></div>
+                      <div className="mt-3 pt-3 border-t">
+                        <p className="text-xs font-medium text-muted-foreground mb-1">Positions:</p>
+                        <div className="flex flex-wrap gap-1">
+                          {election.positions.slice(0, 3).map((position, idx) => (
+                            <Badge key={idx} variant="outline" className="text-xs">
+                              {position}
+                            </Badge>
+                          ))}
+                          {election.positions.length > 3 && (
+                            <Badge variant="outline" className="text-xs">
+                              +{election.positions.length - 3} more
+                            </Badge>
+                          )}
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
                 ))}
-              </div>
             </div>
-
-            {/* Platform Accuracy */}
-            <div className="space-y-3">
-              <h3 className="text-lg font-semibold"><T>Mock Elections vs Actual Results</T></h3>
-              <Card className="hover:shadow-md transition-shadow">
-                <CardContent className="pt-6">
-                  <div className="space-y-4">
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium"><T>Presidential Accuracy</T></span>
-                        <span className="text-sm font-bold text-primary">87%</span>
-                      </div>
-                      <div className="w-full bg-muted rounded-full h-2">
-                        <div className="bg-primary h-2 rounded-full" style={{ width: "87%" }}></div>
-                      </div>
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium"><T>Senatorial Accuracy</T></span>
-                        <span className="text-sm font-bold text-primary">82%</span>
-                      </div>
-                      <div className="w-full bg-muted rounded-full h-2">
-                        <div className="bg-primary h-2 rounded-full" style={{ width: "82%" }}></div>
-                      </div>
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium"><T>Local Elections Accuracy</T></span>
-                        <span className="text-sm font-bold text-primary">79%</span>
-                      </div>
-                      <div className="w-full bg-muted rounded-full h-2">
-                        <div className="bg-primary h-2 rounded-full" style={{ width: "79%" }}></div>
-                      </div>
-                    </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-4">
-                    <T>Based on comparison with actual election results from past elections</T>
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        )}
-
-        {view === "elections" && (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <h2 className="text-2xl font-bold"><T>Election Schedule</T></h2>
-              <p className="text-muted-foreground text-sm"><T>Upcoming Philippine elections and important dates</T></p>
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between p-3 bg-muted rounded-lg hover:shadow-md transition-shadow">
-                <div>
-                  <p className="font-medium text-sm"><T>National Elections</T></p>
-                  <p className="text-xs text-muted-foreground">May 12, 2025</p>
-                </div>
-                <p className="text-xs font-medium"><T>President, Senate, House</T></p>
-              </div>
-              <div className="flex items-center justify-between p-3 bg-muted rounded-lg hover:shadow-md transition-shadow">
-                <div>
-                  <p className="font-medium text-sm"><T>Local Elections</T></p>
-                  <p className="text-xs text-muted-foreground">May 12, 2025</p>
-                </div>
-                <p className="text-xs font-medium"><T>Mayor, Councilors, Barangay</T></p>
-              </div>
-              <div className="flex items-center justify-between p-3 bg-muted rounded-lg hover:shadow-md transition-shadow">
-                <div>
-                  <p className="font-medium text-sm"><T>Barangay Elections</T></p>
-                  <p className="text-xs text-muted-foreground">May 12, 2025</p>
-                </div>
-                <p className="text-xs font-medium"><T>Captain, Kagawad, SK</T></p>
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              <T>View full election schedule on our</T>{" "}
-              <Link href="/elections" className="text-primary hover:underline">
-                <T>Elections Page</T>
+            <div className="flex items-center justify-between pt-2">
+              <p className="text-xs text-muted-foreground">
+                Showing {Math.min(3, electionSchedule.length)} of {electionSchedule.length} upcoming elections
+              </p>
+              <Link href="/elections">
+                <Button variant="outline" size="sm">
+                  View All Elections
+                </Button>
               </Link>
-            </p>
+            </div>
           </div>
         )}
-      </div>
-    </div>
-  )
-}
-
-function MockElectionResults() {
-  const [expandedSection, setExpandedSection] = useState<string | null>(null)
-
-  const partyColors: Record<string, string> = {
-    PFP: "#0066cc",
-    LP: "#ff0000",
-    "Aksyon Demokratiko": "#0099ff",
-    PROMDI: "#ffcc00",
-    "PDP-Laban": "#003366",
-    NPC: "#009900",
-    "Lakas-CMD": "#ff6600",
-    Akbayan: "#cc0099",
-    NP: "#666666",
-    PMP: "#ff9900",
-    "Kabataan Partylist": "#ff3333",
-    Gabriela: "#ff1493",
-    "ACT Teachers": "#4169e1",
-    ANAKALUSUGAN: "#228b22",
-    "Serbisyo sa Bayan": "#8b4513",
-  }
-
-  const getPartyColor = (party: string) => {
-    if (party === "-") return "#c4b5fd" // Light purple for "Others"
-    return partyColors[party] || "#9ca3af" // Neutral gray for unknown parties
-  }
-
-  const sections = [
-    {
-      id: "president",
-      title: "President",
-      data: [
-        { name: "Ferdinand Marcos Jr.", party: "PFP", votes: 45 },
-        { name: "Leni Robredo", party: "LP", votes: 28 },
-        { name: "Isko Moreno", party: "Aksyon Demokratiko", votes: 15 },
-        { name: "Manny Pacquiao", party: "PROMDI", votes: 8 },
-        { name: "Others", party: "-", votes: 4 },
-      ],
-    },
-    {
-      id: "vp",
-      title: "Vice President",
-      data: [
-        { name: "Sara Duterte", party: "PDP-Laban", votes: 42 },
-        { name: "Kiko Pangilinan", party: "LP", votes: 31 },
-        { name: "Tito Sotto", party: "NPC", votes: 18 },
-        { name: "Others", party: "-", votes: 9 },
-      ],
-    },
-    {
-      id: "senators",
-      title: "Senators (Top 10)",
-      data: [
-        { name: "Risa Hontiveros", party: "Akbayan", votes: 32 },
-        { name: "Raffy Tulfo", party: "NP", votes: 28 },
-        { name: "Loren Legarda", party: "NPC", votes: 25 },
-        { name: "Imee Marcos", party: "NP", votes: 22 },
-        { name: "Bong Go", party: "PDP-Laban", votes: 20 },
-        { name: "Cynthia Villar", party: "NPC", votes: 19 },
-        { name: "Sherwin Gatchalian", party: "Lakas-CMD", votes: 18 },
-        { name: "Pia Cayetano", party: "NP", votes: 17 },
-        { name: "Sonny Angara", party: "NP", votes: 16 },
-        { name: "Jinggoy Estrada", party: "PMP", votes: 15 },
-      ],
-    },
-    {
-      id: "partylist",
-      title: "House Party-List",
-      data: [
-        { name: "Kabataan Partylist", party: "Kabataan Partylist", votes: 8 },
-        { name: "Gabriela", party: "Gabriela", votes: 7 },
-        { name: "ACT Teachers", party: "ACT Teachers", votes: 6 },
-        { name: "ANAKALUSUGAN", party: "ANAKALUSUGAN", votes: 5 },
-        { name: "Serbisyo sa Bayan", party: "Serbisyo sa Bayan", votes: 5 },
-      ],
-    },
-  ]
-
-  return (
-    <div className="space-y-3">
-      <h3 className="text-lg font-semibold"><T>Mock Election Results</T></h3>
-      <div className="space-y-2">
-        {sections.map((section) => (
-          <Card key={section.id}>
-            <CardContent className="pt-4">
-              <button
-                onClick={() => setExpandedSection(expandedSection === section.id ? null : section.id)}
-                className="w-full text-left"
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="font-semibold text-base"><T>{section.title}</T></h4>
-                  <span className="text-xs text-muted-foreground">{expandedSection === section.id ? "▼" : "▶"}</span>
-                </div>
-              </button>
-
-              {expandedSection === section.id && (
-                <div className="space-y-3 mt-3 pt-3 border-t">
-                  {section.data.map((candidate, idx) => (
-                    <div key={idx}>
-                      <div className="flex items-center justify-between mb-2">
-                        <div>
-                          <p className="text-sm font-semibold">{candidate.name}</p>
-                          <p className="text-xs text-muted-foreground">{candidate.party}</p>
-                        </div>
-                        <span className="text-lg font-bold">{candidate.votes}%</span>
-                      </div>
-                      <div className="w-full bg-muted rounded-full h-3">
-                        <div
-                          className="h-3 rounded-full transition-all"
-                          style={{
-                            width: `${candidate.votes}%`,
-                            backgroundColor: getPartyColor(candidate.party),
-                          }}
-                        ></div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        ))}
       </div>
     </div>
   )

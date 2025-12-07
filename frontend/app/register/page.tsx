@@ -2,9 +2,9 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { signIn } from "next-auth/react"
+import { signIn, useSession } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -14,15 +14,20 @@ import { T } from "@/components/auto-translate"
 
 export default function RegisterPage() {
   const router = useRouter()
+  const { data: session, status } = useSession()
   const [step, setStep] = useState<"email" | "otp">("email")
   const [email, setEmail] = useState("")
   const [name, setName] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [otp, setOtp] = useState("")
+  const [storedPassword, setStoredPassword] = useState("") // Store password for after OTP verification
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
+  const [otpTimer, setOtpTimer] = useState(0) // Countdown timer in seconds
+  const [canResend, setCanResend] = useState(false) // Whether resend button is enabled
+  const [isResending, setIsResending] = useState(false) // Whether OTP is being resent
 
   const handleSendOTP = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -52,27 +57,37 @@ export default function RegisterPage() {
     setIsLoading(true)
 
     try {
-      const response = await fetch("/api/auth/send-otp", {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+      const response = await fetch(`${API_URL}/auth/send-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, name, password }),
       })
 
       const data = await response.json()
 
       if (!response.ok) {
-        setError(data.error || "Failed to send OTP")
+        setError(data.error || data.errors?.email?.[0] || "Failed to send OTP")
         setIsLoading(false)
         return
       }
 
-      setSuccess("OTP sent to your email! Check the console in development mode.")
-      setStep("otp")
-
-      // In development, show the OTP
+      // Store password for after OTP verification
+      setStoredPassword(password)
+      
+      // Start 5-minute countdown timer (300 seconds)
+      setOtpTimer(300)
+      setCanResend(false) // Disable resend button initially
+      setIsResending(false)
+      
+      // If OTP is returned in response (development mode when mail fails)
       if (data.otp) {
+        setSuccess(`OTP sent! ${data.warning ? data.warning + ' ' : ''}Your OTP: ${data.otp}`)
         console.log("🔐 Your OTP:", data.otp)
+      } else {
+        setSuccess("OTP sent to your email! Please check your inbox.")
       }
+      setStep("otp")
     } catch (err) {
       setError("Failed to send OTP. Please try again.")
     } finally {
@@ -93,10 +108,11 @@ export default function RegisterPage() {
     setIsLoading(true)
 
     try {
-      const response = await fetch("/api/auth/verify-otp", {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+      const response = await fetch(`${API_URL}/auth/verify-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, otp, password, name }),
+        body: JSON.stringify({ email, otp }),
       })
 
       const data = await response.json()
@@ -107,24 +123,148 @@ export default function RegisterPage() {
         return
       }
 
-      setSuccess("Account created successfully! Signing you in...")
+      setSuccess("Account created successfully! Redirecting to sign in...")
 
-      // Sign in the user
-      const result = await signIn("credentials", {
-        email,
-        password,
-        redirect: false,
-      })
-
-      if (result?.error) {
-        setError("Account created but login failed. Please try logging in manually.")
-        setIsLoading(false)
-      } else {
-        router.push("/browse")
+      // Store token for authentication (will be used when user signs in)
+      if (data.token) {
+        localStorage.setItem('auth_token', data.token)
       }
+
+      // Sync user from Laravel to Prisma (for NextAuth)
+      // This allows the user to sign in on the login page
+      let syncSuccess = false
+      try {
+        const syncResponse = await fetch('/api/auth/sync-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email,
+            name: data.user?.name || name,
+            password: storedPassword || password, // Plain password - will be hashed in sync endpoint
+            userId: data.user?.id,
+            token: data.token, // Pass token to fetch user data from Laravel if needed
+          }),
+        })
+
+        const syncData = await syncResponse.json()
+        
+        if (syncResponse.ok && syncData.success) {
+          syncSuccess = true
+          console.log('✅ User synced to Prisma:', syncData.message)
+        } else {
+          console.error('❌ Sync failed:', syncData.error || syncData.message)
+          // If sync fails, we should still allow redirect but warn user
+          setError(`Account created but sync failed: ${syncData.error || 'Unknown error'}. You may need to try signing in again.`)
+        }
+      } catch (syncErr: any) {
+        console.error('❌ Sync user error:', syncErr)
+        setError(`Account created but sync failed: ${syncErr.message}. You may need to try signing in again.`)
+      }
+
+      // If sync failed, wait a bit and try to verify user exists
+      if (!syncSuccess) {
+        // Wait and check if user exists in Prisma
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        
+        try {
+          const verifyResponse = await fetch('/api/auth/sync-user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+        email,
+              name: data.user?.name || name,
+              password: storedPassword || password,
+              userId: data.user?.id,
+              token: data.token,
+            }),
+          })
+          
+          const verifyData = await verifyResponse.json()
+          if (verifyResponse.ok && verifyData.success) {
+            syncSuccess = true
+            setError("") // Clear error if retry succeeded
+            console.log('✅ User synced on retry')
+          }
+        } catch (retryErr) {
+          console.error('❌ Retry sync failed:', retryErr)
+        }
+      }
+
+      // Wait a moment to show success message
+      await new Promise(resolve => setTimeout(resolve, 1500))
+      
+      // Redirect directly to login page with email pre-filled
+      // User will sign in and go to browse (no profile completion needed)
+      router.push(`/login?email=${encodeURIComponent(email)}`)
     } catch (err) {
       setError("Failed to verify OTP. Please try again.")
       setIsLoading(false)
+    }
+  }
+
+  // Countdown timer effect
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null
+    
+    if (step === "otp" && otpTimer > 0) {
+      interval = setInterval(() => {
+        setOtpTimer((prev) => {
+          if (prev <= 1) {
+            setCanResend(true) // Enable resend button when timer reaches 0
+            return 0
+          }
+          return prev - 1
+        })
+      }, 1000)
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval)
+    }
+  }, [step, otpTimer])
+
+  const handleResendOTP = async () => {
+    if (!canResend || isResending) return
+    
+    setIsResending(true)
+    setError("")
+    setSuccess("")
+    setCanResend(false) // Disable button immediately when clicked
+    
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+      const passwordToUse = storedPassword || password
+      const response = await fetch(`${API_URL}/auth/send-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, name, password: passwordToUse }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        setError(data.error || data.errors?.email?.[0] || "Failed to resend OTP")
+        setCanResend(true) // Re-enable if error
+        setIsResending(false)
+        return
+      }
+
+      // Restart timer
+      setOtpTimer(300) // 5 minutes
+      setCanResend(false)
+      
+      // If OTP is returned in response (development mode when mail fails)
+      if (data.otp) {
+        setSuccess(`OTP resent! ${data.warning ? data.warning + ' ' : ''}Your OTP: ${data.otp}`)
+        console.log("🔐 Your OTP:", data.otp)
+      } else {
+        setSuccess("OTP resent to your email! Please check your inbox.")
+      }
+    } catch (err) {
+      setError("Failed to resend OTP. Please try again.")
+      setCanResend(true) // Re-enable if error
+    } finally {
+      setIsResending(false)
     }
   }
 
@@ -309,7 +449,7 @@ export default function RegisterPage() {
                     required
                   />
                   <p className="text-xs text-muted-foreground text-center">
-                    <T>Check your browser console for the OTP (development mode)</T>
+                    <T>Check your email inbox for the OTP code</T>
                   </p>
                 </div>
 
@@ -337,10 +477,16 @@ export default function RegisterPage() {
                   type="button"
                   variant="ghost"
                   className="w-full text-sm"
-                  onClick={handleSendOTP}
-                  disabled={isLoading}
+                  onClick={handleResendOTP}
+                  disabled={!canResend || isResending || isLoading}
                 >
+                  {isResending ? (
+                    <T>Resending...</T>
+                  ) : canResend ? (
                   <T>Resend OTP</T>
+                  ) : (
+                    <T>Resend OTP ({Math.floor(otpTimer / 60)}:{(otpTimer % 60).toString().padStart(2, '0')})</T>
+                  )}
                 </Button>
               </form>
             )}

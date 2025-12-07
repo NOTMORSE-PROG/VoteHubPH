@@ -1,72 +1,76 @@
-import { withAuth } from "next-auth/middleware"
-import { NextResponse } from "next/server"
+import { withAuth } from "next-auth/middleware";
+import { NextResponse } from "next/server";
 
 export default withAuth(
   function middleware(req) {
-    const token = req.nextauth.token
-    const isAuth = !!token
-    const pathname = req.nextUrl.pathname
-    const isAuthPage = pathname.startsWith('/login') ||
-                       pathname.startsWith('/signup') ||
-                       pathname.startsWith('/register')
-    const isCompleteProfilePage = pathname.startsWith('/complete-profile')
+    const token = req.nextauth.token;
+    const isAuth = !!token;
+    const pathname = req.nextUrl.pathname;
+    const isAuthPage =
+      pathname.startsWith("/login") ||
+      pathname.startsWith("/signup") ||
+      pathname.startsWith("/register");
 
-    // If user is authenticated but profile is incomplete, redirect to complete-profile
-    if (isAuth && token?.profileCompleted === false && !isCompleteProfilePage) {
-      // Allow access to auth pages and API routes even with incomplete profile
-      if (!isAuthPage && !pathname.startsWith('/api/')) {
-        return NextResponse.redirect(new URL('/complete-profile', req.url))
-      }
-    }
-
-    // If user is authenticated with complete profile and tries to access complete-profile page, redirect to browse
-    if (isAuth && token?.profileCompleted === true && isCompleteProfilePage) {
-      return NextResponse.redirect(new URL('/browse', req.url))
+    // Debug logging (remove in production)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Middleware]', {
+        pathname,
+        hasToken: !!token,
+        tokenId: token?.id,
+        tokenEmail: token?.email,
+      });
     }
 
     // If user is authenticated and tries to access auth pages, redirect to browse
     if (isAuthPage && isAuth) {
-      return NextResponse.redirect(new URL('/browse', req.url))
+      return NextResponse.redirect(new URL("/browse", req.url));
     }
 
     // For protected routes, the withAuth will handle redirecting to login
-    return NextResponse.next()
+    return NextResponse.next();
   },
   {
     callbacks: {
       authorized: ({ token, req }) => {
-        const pathname = req.nextUrl.pathname
+        const pathname = req.nextUrl.pathname;
 
         // Public routes that don't require authentication
         const publicRoutes = [
-          '/',
-          '/login',
-          '/signup',
-          '/register',
-          '/browse',
-          '/candidate',
-          '/partylist',
-          '/api/auth',
-          '/complete-profile', // Allow complete-profile (middleware will handle incomplete users)
-        ]
+          "/",
+          "/login",
+          "/signup",
+          "/register",
+          "/browse",
+          "/candidate",
+          "/partylist",
+          "/api/auth",
+        ];
 
         // Check if the pathname starts with any public route
-        const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route))
+        const isPublicRoute = publicRoutes.some((route) =>
+          pathname.startsWith(route)
+        );
 
         // Allow access to public routes without authentication
         if (isPublicRoute) {
-          return true
+          return true;
         }
 
         // For all other routes, require authentication
-        return !!token
+        // With database sessions, token should exist if user is authenticated
+        // If token is null/undefined, user is not authenticated
+        if (!token) {
+          return false;
+        }
+
+        return true;
       },
     },
     pages: {
-      signIn: '/login',
+      signIn: "/login",
     },
   }
-)
+);
 
 // Protect specific routes
 export const config = {
@@ -78,6 +82,6 @@ export const config = {
      * - favicon.ico (favicon file)
      * - public folder
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
-}
+};

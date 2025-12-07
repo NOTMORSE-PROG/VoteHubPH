@@ -1,8 +1,30 @@
 "use client"
 
-import { positions } from "@/lib/candidate-data"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { T } from "@/components/auto-translate"
+
+interface Position {
+  id: string
+  name: string
+  level: "barangay" | "city" | "national"
+}
+
+const positions: Position[] = [
+  // Barangay Level
+  { id: "barangay-chairman", name: "Barangay Chairman", level: "barangay" },
+  { id: "barangay-kagawad", name: "Barangay Kagawad", level: "barangay" },
+  
+  // City Level
+  { id: "mayor", name: "Mayor", level: "city" },
+  { id: "vice-mayor", name: "Vice Mayor", level: "city" },
+  { id: "councilor", name: "Councilor", level: "city" },
+  
+  // National Level
+  { id: "president", name: "President", level: "national" },
+  { id: "vice-president", name: "Vice President", level: "national" },
+  { id: "senator", name: "Senator", level: "national" },
+  { id: "representative", name: "Representative", level: "national" },
+]
 
 interface PositionFilterProps {
   level: "barangay" | "city" | "national"

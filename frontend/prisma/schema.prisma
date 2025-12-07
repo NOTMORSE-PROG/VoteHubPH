@@ -29,9 +29,6 @@ model User {
 
   // User preferences
   language         String    @default("en") // "en" or "fil"
-  region           String?
-  city             String?
-  barangay         String?
   profileCompleted Boolean   @default(false) // True when user completes profile after SSO
 
   // Metadata

@@ -16,12 +16,82 @@ export interface VotingLocation {
 
 export const electionSchedule: ElectionEvent[] = [
   {
-    id: "election1",
-    name: "2025 Philippine Midterm Elections",
-    date: new Date("2025-05-12"),
-    positions: ["Senators (12 seats)", "House Representatives (316 seats)", "Party-List Representatives (63 seats)", "Provincial Governors", "Vice Governors", "Provincial Board Members", "City/Municipal Mayors", "City/Municipal Vice Mayors", "City/Municipal Councilors"],
+    id: "barangay-sk-2026",
+    name: "Barangay and Sangguniang Kabataan Elections 2026",
+    date: new Date("2026-11-02"),
+    positions: ["Barangay Chairman", "Barangay Kagawad (7 seats per barangay)", "SK Chairman", "SK Kagawad (7 seats per barangay)"],
+    level: "local",
+    description: "Nationwide Barangay and SK Elections. All 42,000+ barangays across the Philippines will elect their local leaders. Postponed from December 2025 to November 2026.",
+    votingLocations: [
+      {
+        region: "NCR",
+        cities: ["Manila", "Quezon City", "Makati", "Pasig", "Taguig", "Caloocan", "Las Piñas", "Parañaque", "Muntinlupa", "Mandaluyong", "Marikina", "Pasay", "Valenzuela", "Malabon", "Navotas", "San Juan", "Pateros"],
+        votingCenters: ["Barangay Halls", "Community Centers"],
+      },
+      {
+        region: "CALABARZON",
+        cities: ["Cavite City", "Laguna", "Batangas", "Rizal", "Quezon"],
+        votingCenters: ["Barangay Halls", "Community Centers"],
+      },
+      {
+        region: "Central Visayas",
+        cities: ["Cebu City", "Mandaue", "Lapu-Lapu", "Tagbilaran", "Dumaguete"],
+        votingCenters: ["Barangay Halls", "Community Centers"],
+      },
+      {
+        region: "Davao Region",
+        cities: ["Davao City", "Tagum", "Panabo", "Mati", "Digos"],
+        votingCenters: ["Barangay Halls", "Community Centers"],
+      },
+      {
+        region: "Ilocos Region",
+        cities: ["Laoag", "Vigan", "Batac", "San Fernando"],
+        votingCenters: ["Barangay Halls", "Community Centers"],
+      },
+      {
+        region: "Central Luzon",
+        cities: ["Angeles", "San Fernando", "Olongapo", "Malolos", "Cabanatuan"],
+        votingCenters: ["Barangay Halls", "Community Centers"],
+      },
+      {
+        region: "Western Visayas",
+        cities: ["Iloilo City", "Bacolod", "Roxas", "Kalibo"],
+        votingCenters: ["Barangay Halls", "Community Centers"],
+      },
+      {
+        region: "Northern Mindanao",
+        cities: ["Cagayan de Oro", "Butuan", "Iligan", "Valencia"],
+        votingCenters: ["Barangay Halls", "Community Centers"],
+      },
+      {
+        region: "BARMM",
+        cities: ["Cotabato City", "Marawi", "Lamitan"],
+        votingCenters: ["Barangay Halls", "Community Centers"],
+      },
+    ],
+  },
+  {
+    id: "barmm-2026",
+    name: "BARMM Parliamentary Elections 2026",
+    date: new Date("2026-05-11"),
+    positions: ["BARMM Parliament Members (80 seats)"],
+    level: "local",
+    description: "First regular Bangsamoro Parliamentary Elections under the postponed schedule. Elections to be held every three years thereafter.",
+    votingLocations: [
+      {
+        region: "BARMM",
+        cities: ["Cotabato City", "Marawi", "Lamitan", "Isabela City"],
+        votingCenters: ["Schools", "Barangay Halls", "Community Centers"],
+      },
+    ],
+  },
+  {
+    id: "presidential-2028",
+    name: "2028 Philippine Presidential Elections",
+    date: new Date("2028-05-08"),
+    positions: ["President", "Vice President", "Senators (12 seats)", "House Representatives (316 seats)", "Party-List Representatives (63 seats)"],
     level: "national",
-    description: "Official COMELEC 2025 National and Local Elections. All Filipinos registered by September 30, 2024 are eligible to vote. Election period: January 12 - June 11, 2025.",
+    description: "Presidential, Vice Presidential, Senatorial, and Congressional Elections. Filipino citizens will elect the next President and Vice President for a 6-year term.",
     votingLocations: [
       {
         region: "NCR",
@@ -61,6 +131,36 @@ export const electionSchedule: ElectionEvent[] = [
       {
         region: "Northern Mindanao",
         cities: ["Cagayan de Oro", "Butuan", "Iligan", "Valencia"],
+        votingCenters: ["Schools", "Barangay Halls", "Community Centers"],
+      },
+    ],
+  },
+  {
+    id: "local-2028",
+    name: "2028 Local Elections",
+    date: new Date("2028-05-08"),
+    positions: ["Provincial Governors", "Vice Governors", "Provincial Board Members", "City/Municipal Mayors", "City/Municipal Vice Mayors", "City/Municipal Councilors"],
+    level: "local",
+    description: "Local government elections held simultaneously with the presidential elections. Positions elected every three years.",
+    votingLocations: [
+      {
+        region: "NCR",
+        cities: ["Manila", "Quezon City", "Makati", "Pasig", "Taguig", "Caloocan"],
+        votingCenters: ["Schools", "Barangay Halls", "Community Centers"],
+      },
+      {
+        region: "CALABARZON",
+        cities: ["Cavite City", "Laguna", "Batangas", "Rizal", "Quezon"],
+        votingCenters: ["Schools", "Barangay Halls", "Community Centers"],
+      },
+      {
+        region: "Central Visayas",
+        cities: ["Cebu City", "Mandaue", "Lapu-Lapu", "Tagbilaran"],
+        votingCenters: ["Schools", "Barangay Halls", "Community Centers"],
+      },
+      {
+        region: "Davao Region",
+        cities: ["Davao City", "Tagum", "Panabo", "Mati"],
         votingCenters: ["Schools", "Barangay Halls", "Community Centers"],
       },
     ],
