@@ -136,8 +136,11 @@ class AuthController extends Controller
                     ]);
                 }
                 
-                // SMTP configuration is already set in config/mail.php
-                // No need to reconfigure here as it uses env variables
+                // Configure mail settings with proper timeout and encryption
+                config([
+                    'mail.mailers.smtp.timeout' => 30,
+                    'mail.mailers.smtp.encryption' => env('MAIL_ENCRYPTION', 'tls'),
+                ]);
             } else {
                 // Unknown mailer or not configured
                 \Log::warning('Mail not configured. Returning OTP in response for: ' . $request->email);
