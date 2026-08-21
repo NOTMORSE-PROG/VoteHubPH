@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from "react"
-import { CheckCircle, XCircle, Clock, Loader2, User, Shield, ChevronDown, ChevronUp, RefreshCw, Users, AlertCircle } from "lucide-react"
+import { CheckCircle, XCircle, Clock, Loader2, User, Shield, ChevronDown, ChevronUp, RefreshCw, Users, AlertCircle, ShieldCheck, AlertTriangle, Flag, FileText, MessageSquare } from "lucide-react"
 
 interface Post {
   id: number
@@ -16,9 +16,19 @@ interface Post {
   images: Array<{ url: string; caption: string }> | null
   profile_photo?: string | null
   party?: string | null
-  party_list_managed?: boolean | null // Track if party list has been managed
+  party_list_managed?: boolean | null
   status: "pending" | "approved" | "rejected"
   admin_notes: string | null
+  verification_status?: string | null
+  verified_at?: string | null
+  verification_method?: string | null
+  verification_document_type?: string | null
+  verification_document_url?: string | null
+  verification_document_notes?: string | null
+  verification_requested_at?: string | null
+  is_flagged?: boolean
+  flag_reason?: string | null
+  approved_at?: string | null
   user: {
     id: string
     name: string
@@ -28,8 +38,33 @@ interface Post {
   updated_at: string
 }
 
+interface Report {
+  id: number
+  reportable_type: "post" | "comment"
+  reportable_id: number
+  excerpt: string | null
+  full_content: string | null
+  reason: string
+  description: string | null
+  status: "pending" | "reviewed" | "dismissed"
+  reporter_name: string
+  created_at: string
+}
+
+interface FlaggedComment {
+  id: number
+  post_id: number
+  post_name: string
+  user_name: string
+  content: string | null
+  moderation_status: string
+  removal_reason: string | null
+  created_at: string
+}
+
 export default function AdminDashboard() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
+  const [activeTab, setActiveTab] = useState<"posts" | "reports" | "comments">("posts")
   const [posts, setPosts] = useState<Post[]>([])
   const [filteredPosts, setFilteredPosts] = useState<Post[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -44,6 +79,24 @@ export default function AdminDashboard() {
   const [isSearchingPartyList, setIsSearchingPartyList] = useState<Record<number, boolean>>({})
   const [selectedPartyListId, setSelectedPartyListId] = useState<Record<number, number | null>>({})
   const [isProcessingPartyList, setIsProcessingPartyList] = useState<Record<number, boolean>>({})
+  // Verify / flag state
+  const [verifyingIds, setVerifyingIds] = useState<Set<number>>(new Set())
+  const [flagInputs, setFlagInputs] = useState<Record<number, boolean>>({})
+  const [flagReasons, setFlagReasons] = useState<Record<number, string>>({})
+  // Verify dialog state
+  const [verifyDialogPostId, setVerifyDialogPostId] = useState<number | null>(null)
+  const [verifyMethod, setVerifyMethod] = useState("COMELEC CoE")
+  // Reports state
+  const [reports, setReports] = useState<Report[]>([])
+  const [isLoadingReports, setIsLoadingReports] = useState(false)
+  const [processingReports, setProcessingReports] = useState<Set<number>>(new Set())
+  // Flagged comments state
+  const [flaggedComments, setFlaggedComments] = useState<FlaggedComment[]>([])
+  const [isLoadingComments, setIsLoadingComments] = useState(false)
+  const [processingComments, setProcessingComments] = useState<Set<number>>(new Set())
+  // Detail modals
+  const [selectedReport, setSelectedReport] = useState<Report | null>(null)
+  const [selectedComment, setSelectedComment] = useState<FlaggedComment | null>(null)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const lastFetchRef = useRef<number>(0)
   const isInitialMount = useRef(true)
@@ -53,6 +106,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const authenticated = localStorage.getItem('admin_authenticated') === 'true'
+        && Boolean(localStorage.getItem('admin_token'))
       setIsAuthenticated(authenticated)
       if (!authenticated) {
         setIsLoading(false)
@@ -91,10 +145,10 @@ export default function AdminDashboard() {
     
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
-      const adminUserId = typeof window !== 'undefined' ? localStorage.getItem('admin_user_id') : null
+      const adminToken = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null
       
-      if (!adminUserId) {
-        console.error("Admin user ID not found")
+      if (!adminToken) {
+        console.error("Admin token not found")
         setIsLoading(false)
         setIsRefreshing(false)
         return
@@ -103,9 +157,7 @@ export default function AdminDashboard() {
       const response = await fetch(`${apiUrl}/admin/posts`, {
         credentials: "include",
         cache: 'no-store', // Prevent caching
-        headers: {
-          'X-User-Id': adminUserId,
-        },
+        headers: getAdminHeaders(),
       })
       if (response.ok) {
         const data = await response.json()
@@ -209,9 +261,143 @@ export default function AdminDashboard() {
     }
   }, [filter, fetchPosts, posts.length])
 
-  const handleManualRefresh = () => {
-    fetchPosts(false)
+  const getAdminHeaders = () => {
+    const adminToken = typeof window !== "undefined" ? localStorage.getItem("admin_token") : null
+    return {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}),
+    }
   }
+
+  const fetchReports = useCallback(async () => {
+    setIsLoadingReports(true)
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
+      const res = await fetch(`${apiUrl}/admin/reports`, { credentials: "include", headers: getAdminHeaders() })
+      if (res.ok) setReports(await res.json())
+    } catch (e) {
+      console.error("Failed to fetch reports:", e)
+    } finally {
+      setIsLoadingReports(false)
+    }
+  }, [])
+
+  const handleReportStatus = async (reportId: number, status: "reviewed" | "dismissed") => {
+    setProcessingReports((prev) => new Set(prev).add(reportId))
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
+      const res = await fetch(`${apiUrl}/admin/reports/${reportId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: getAdminHeaders(),
+        body: JSON.stringify({ status }),
+      })
+      if (res.ok) {
+        setReports((prev) => prev.map((r) => (r.id === reportId ? { ...r, status } : r)))
+      }
+    } catch (e) {
+      console.error("Failed to update report:", e)
+    } finally {
+      setProcessingReports((prev) => { const s = new Set(prev); s.delete(reportId); return s })
+    }
+  }
+
+  const fetchFlaggedComments = useCallback(async () => {
+    setIsLoadingComments(true)
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
+      const res = await fetch(`${apiUrl}/admin/comments/flagged`, { credentials: "include", headers: getAdminHeaders() })
+      if (res.ok) setFlaggedComments(await res.json())
+    } catch (e) {
+      console.error("Failed to fetch flagged comments:", e)
+    } finally {
+      setIsLoadingComments(false)
+    }
+  }, [])
+
+  const handleCommentModerate = async (commentId: number, action: "remove" | "restore") => {
+    setProcessingComments((prev) => new Set(prev).add(commentId))
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
+      const res = await fetch(`${apiUrl}/admin/comments/${commentId}/moderate`, {
+        method: "POST",
+        credentials: "include",
+        headers: getAdminHeaders(),
+        body: JSON.stringify({ action }),
+      })
+      if (res.ok) {
+        setFlaggedComments((prev) =>
+          prev.map((c) =>
+            c.id === commentId
+              ? { ...c, moderation_status: action === "remove" ? "removed" : "visible" }
+              : c
+          )
+        )
+      }
+    } catch (e) {
+      console.error("Failed to moderate comment:", e)
+    } finally {
+      setProcessingComments((prev) => { const s = new Set(prev); s.delete(commentId); return s })
+    }
+  }
+
+  const handleVerify = async (postId: number, method: string) => {
+    setVerifyingIds((prev) => new Set(prev).add(postId))
+    setVerifyDialogPostId(null)
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
+      const res = await fetch(`${apiUrl}/admin/posts/${postId}/verify`, {
+        method: "POST",
+        credentials: "include",
+        headers: getAdminHeaders(),
+        body: JSON.stringify({ verification_method: method }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setPosts((prev) =>
+          prev.map((p) => (p.id === postId ? { ...p, verification_status: "verified", verified_at: new Date().toISOString(), verification_method: method } : p))
+        )
+      }
+    } catch (e) {
+      console.error("Failed to verify post:", e)
+    } finally {
+      setVerifyingIds((prev) => { const s = new Set(prev); s.delete(postId); return s })
+    }
+  }
+
+  const handleFlag = async (postId: number, reason: string) => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
+      const res = await fetch(`${apiUrl}/admin/posts/${postId}/flag`, {
+        method: "POST",
+        credentials: "include",
+        headers: getAdminHeaders(),
+        body: JSON.stringify({ flag_reason: reason }),
+      })
+      if (res.ok) {
+        setPosts((prev) =>
+          prev.map((p) => (p.id === postId ? { ...p, is_flagged: true, flag_reason: reason } : p))
+        )
+        setFlagInputs((prev) => ({ ...prev, [postId]: false }))
+      }
+    } catch (e) {
+      console.error("Failed to flag post:", e)
+    }
+  }
+
+  const handleManualRefresh = () => {
+    if (activeTab === "posts") fetchPosts(false)
+    else if (activeTab === "reports") fetchReports()
+    else if (activeTab === "comments") fetchFlaggedComments()
+  }
+
+  useEffect(() => {
+    if (isAuthenticated === true) {
+      if (activeTab === "reports") fetchReports()
+      else if (activeTab === "comments") fetchFlaggedComments()
+    }
+  }, [activeTab, isAuthenticated, fetchReports, fetchFlaggedComments])
 
   const handleApprove = async (postId: number) => {
     // Prevent multiple clicks
@@ -232,18 +418,22 @@ export default function AdminDashboard() {
     
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
-      const adminUserId = typeof window !== 'undefined' ? localStorage.getItem('admin_user_id') : null
-      
       const response = await fetch(`${apiUrl}/admin/posts/${postId}/approve`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-          ...(adminUserId ? { 'X-User-Id': adminUserId } : {}),
+          ...getAdminHeaders(),
         },
         credentials: "include",
       })
       if (response.ok) {
+        const data = await response.json()
+        const partyListAction = data.party_list_action
+        if (partyListAction?.type === 'created') {
+          alert(`Post approved. A new party list "${partyListAction.name}" was created with this candidate as its first member.`)
+        } else if (partyListAction?.type === 'added') {
+          alert(`Post approved. This candidate was added to the existing party list "${partyListAction.name}" (now ${partyListAction.member_count} members).`)
+        }
+
         // Sync with server (silent refresh to avoid loading state)
         await fetchPosts(true)
       } else {
@@ -288,14 +478,10 @@ export default function AdminDashboard() {
     
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
-      const adminUserId = typeof window !== 'undefined' ? localStorage.getItem('admin_user_id') : null
-      
       const response = await fetch(`${apiUrl}/admin/posts/${postId}/reject`, {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-          ...(adminUserId ? { 'X-User-Id': adminUserId } : {}),
+        headers: {
+          ...getAdminHeaders(),
         },
         body: JSON.stringify({ admin_notes: adminNotes }),
         credentials: "include",
@@ -386,6 +572,50 @@ export default function AdminDashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Main Tab Navigation */}
+        <div className="flex gap-1 mb-8 border-b border-gray-200">
+          <button
+            onClick={() => setActiveTab("posts")}
+            className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition -mb-px ${
+              activeTab === "posts"
+                ? "border-blue-600 text-blue-600"
+                : "border-transparent text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            <FileText className="h-4 w-4" />
+            Posts
+          </button>
+          <button
+            onClick={() => setActiveTab("reports")}
+            className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition -mb-px ${
+              activeTab === "reports"
+                ? "border-blue-600 text-blue-600"
+                : "border-transparent text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            <Flag className="h-4 w-4" />
+            Reports
+            {reports.filter((r) => r.status === "pending").length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 bg-red-500 text-white text-xs rounded-full">
+                {reports.filter((r) => r.status === "pending").length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("comments")}
+            className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition -mb-px ${
+              activeTab === "comments"
+                ? "border-blue-600 text-blue-600"
+                : "border-transparent text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            <MessageSquare className="h-4 w-4" />
+            Comments
+          </button>
+        </div>
+
+        {/* ── POSTS TAB ── */}
+        {activeTab === "posts" && <>
         {/* Stats Cards */}
         <div className="grid grid-cols-4 gap-4 mb-8">
           <div className="bg-white rounded-lg shadow p-6">
@@ -779,11 +1009,399 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                 )}
+
+                {/* Verify / Flag controls (approved posts only) */}
+                {post.status === "approved" && (
+                  <div className="border-t border-gray-200 p-4 bg-gray-50">
+                    <p className="text-xs text-gray-500 mb-3">
+                      <strong>Note:</strong> Admin notes are publicly visible to voters on rejected or flagged posts.
+                    </p>
+                    <div className="flex gap-3 flex-wrap items-center">
+                      {/* Verify */}
+                      {(!post.verification_status || post.verification_status === "unverified") ? (
+                        <button
+                          onClick={() => { setVerifyDialogPostId(post.id); setVerifyMethod("COMELEC CoE") }}
+                          disabled={verifyingIds.has(post.id)}
+                          className="inline-flex items-center gap-2 px-3 py-1.5 border border-green-600 text-green-700 rounded-md hover:bg-green-50 text-sm font-medium disabled:opacity-50"
+                        >
+                          {verifyingIds.has(post.id) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+                          {verifyingIds.has(post.id) ? "Verifying..." : "Verify Official"}
+                        </button>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-100 text-green-800 rounded-md text-sm font-medium">
+                          <ShieldCheck className="h-3.5 w-3.5" />
+                          Verified {post.verification_method ? `via ${post.verification_method}` : ""}
+                        </span>
+                      )}
+
+                      {/* Flag */}
+                      {!post.is_flagged ? (
+                        flagInputs[post.id] ? (
+                          <div className="flex gap-2 items-center">
+                            <input
+                              type="text"
+                              placeholder="Reason (optional)"
+                              value={flagReasons[post.id] || ""}
+                              onChange={(e) => setFlagReasons((prev) => ({ ...prev, [post.id]: e.target.value }))}
+                              className="px-2 py-1 border border-orange-300 rounded-md text-sm w-44"
+                            />
+                            <button
+                              onClick={() => handleFlag(post.id, flagReasons[post.id] || "")}
+                              className="px-3 py-1.5 bg-orange-600 text-white rounded-md text-sm font-medium hover:bg-orange-700"
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              onClick={() => setFlagInputs((prev) => ({ ...prev, [post.id]: false }))}
+                              className="text-sm text-gray-500 hover:text-gray-700"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setFlagInputs((prev) => ({ ...prev, [post.id]: true }))}
+                            className="inline-flex items-center gap-2 px-3 py-1.5 border border-orange-500 text-orange-600 rounded-md hover:bg-orange-50 text-sm font-medium"
+                          >
+                            <AlertTriangle className="h-3.5 w-3.5" />
+                            Flag Content
+                          </button>
+                        )
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-100 text-orange-800 rounded-md text-sm font-medium">
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                          Flagged {post.flag_reason ? `(${post.flag_reason})` : ""}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             ))
           )}
         </div>
+        </> /* end Posts tab */}
+
+        {/* ── REPORTS TAB ── */}
+        {activeTab === "reports" && (
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">User Reports</h2>
+            {isLoadingReports ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+              </div>
+            ) : reports.length === 0 ? (
+              <div className="bg-white rounded-lg shadow p-12 text-center text-gray-500">No reports submitted yet.</div>
+            ) : (
+              <div className="bg-white rounded-lg shadow overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="text-left px-4 py-3 font-medium text-gray-700">Type</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-700">Content</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-700">Reason</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-700">Reporter</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-700">Status</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-700">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {reports.map((report) => (
+                      <tr key={report.id} className="hover:bg-blue-50 cursor-pointer" onClick={() => setSelectedReport(report)}>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${report.reportable_type === "post" ? "bg-blue-100 text-blue-800" : "bg-purple-100 text-purple-800"}`}>
+                            {report.reportable_type}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 max-w-xs">
+                          <p className="text-gray-800 truncate">{report.excerpt ?? "(no preview)"}</p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="font-medium text-gray-800">{report.reason}</span>
+                          {report.description && (
+                            <p className="text-xs text-gray-500 mt-0.5 max-w-xs truncate">{report.description}</p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-gray-600">{report.reporter_name}</td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                            report.status === "pending" ? "bg-yellow-100 text-yellow-800" :
+                            report.status === "reviewed" ? "bg-green-100 text-green-800" :
+                            "bg-gray-100 text-gray-600"
+                          }`}>
+                            {report.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          {report.status === "pending" && (
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleReportStatus(report.id, "reviewed")}
+                                disabled={processingReports.has(report.id)}
+                                className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50"
+                              >
+                                Mark Reviewed
+                              </button>
+                              <button
+                                onClick={() => handleReportStatus(report.id, "dismissed")}
+                                disabled={processingReports.has(report.id)}
+                                className="px-2 py-1 bg-gray-500 text-white rounded text-xs hover:bg-gray-600 disabled:opacity-50"
+                              >
+                                Dismiss
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── COMMENTS TAB ── */}
+        {activeTab === "comments" && (
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Comment Moderation</h2>
+            {isLoadingComments ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+              </div>
+            ) : flaggedComments.length === 0 ? (
+              <div className="bg-white rounded-lg shadow p-12 text-center text-gray-500">No moderated comments found.</div>
+            ) : (
+              <div className="bg-white rounded-lg shadow overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="text-left px-4 py-3 font-medium text-gray-700">Post</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-700">Author</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-700">Content</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-700">Status</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-700">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {flaggedComments.map((comment) => (
+                      <tr key={comment.id} className="hover:bg-blue-50 cursor-pointer" onClick={() => setSelectedComment(comment)}>
+                        <td className="px-4 py-3 text-gray-800 font-medium max-w-xs truncate">{comment.post_name}</td>
+                        <td className="px-4 py-3 text-gray-600">{comment.user_name}</td>
+                        <td className="px-4 py-3 max-w-xs">
+                          <p className="text-gray-600 truncate">{comment.content ?? "(content removed)"}</p>
+                          {comment.removal_reason && (
+                            <p className="text-xs text-red-500 mt-0.5">Reason: {comment.removal_reason}</p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                            comment.moderation_status === "removed" ? "bg-red-100 text-red-800" : "bg-yellow-100 text-yellow-800"
+                          }`}>
+                            {comment.moderation_status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex gap-2">
+                            {comment.moderation_status !== "removed" && (
+                              <button
+                                onClick={() => handleCommentModerate(comment.id, "remove")}
+                                disabled={processingComments.has(comment.id)}
+                                className="px-2 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700 disabled:opacity-50"
+                              >
+                                Remove
+                              </button>
+                            )}
+                            {comment.moderation_status === "removed" && (
+                              <button
+                                onClick={() => handleCommentModerate(comment.id, "restore")}
+                                disabled={processingComments.has(comment.id)}
+                                className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50"
+                              >
+                                Restore
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </main>
+
+      {/* ── VERIFY METHOD DIALOG ── */}
+      {verifyDialogPostId !== null && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setVerifyDialogPostId(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-green-600" />
+                Verify Official Candidate
+              </h3>
+              <p className="text-sm text-gray-500 mt-1">Select how you verified this candidate's identity.</p>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Verification Method</label>
+                <div className="space-y-2">
+                  {["COMELEC CoE", "Official Gov Website", "Government ID", "Manual Review"].map((method) => (
+                    <label key={method} className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="verifyMethod"
+                        value={method}
+                        checked={verifyMethod === method}
+                        onChange={() => setVerifyMethod(method)}
+                        className="text-green-600"
+                      />
+                      <span className="text-sm font-medium text-gray-800">{method}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-200 flex gap-3 justify-end">
+              <button
+                onClick={() => setVerifyDialogPostId(null)}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+              >Cancel</button>
+              <button
+                onClick={() => handleVerify(verifyDialogPostId, verifyMethod)}
+                disabled={verifyingIds.has(verifyDialogPostId)}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 inline-flex items-center gap-2"
+              >
+                {verifyingIds.has(verifyDialogPostId) ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                Confirm Verification
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── REPORT DETAIL MODAL ── */}
+      {selectedReport && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setSelectedReport(null)}>
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h3 className="text-base font-semibold text-gray-900">Report Details</h3>
+              <button onClick={() => setSelectedReport(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div className="flex items-center gap-3">
+                <span className={`px-2.5 py-1 rounded text-xs font-semibold ${selectedReport.reportable_type === "post" ? "bg-blue-100 text-blue-800" : "bg-purple-100 text-purple-800"}`}>
+                  {selectedReport.reportable_type}
+                </span>
+                <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                  selectedReport.status === "pending" ? "bg-yellow-100 text-yellow-800" :
+                  selectedReport.status === "reviewed" ? "bg-green-100 text-green-800" :
+                  "bg-gray-100 text-gray-600"
+                }`}>{selectedReport.status}</span>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Content</p>
+                <p className="text-sm text-gray-800 bg-gray-50 rounded-lg p-3 leading-relaxed whitespace-pre-wrap">{selectedReport.full_content ?? selectedReport.excerpt ?? "(no preview available)"}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Reason</p>
+                <p className="text-sm font-medium text-gray-900">{selectedReport.reason}</p>
+              </div>
+              {selectedReport.description && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Additional Details</p>
+                  <p className="text-sm text-gray-700 bg-gray-50 rounded-lg p-3 leading-relaxed">{selectedReport.description}</p>
+                </div>
+              )}
+              <div className="flex gap-6 text-sm">
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-0.5">Reporter</p>
+                  <p className="text-gray-800">{selectedReport.reporter_name}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-0.5">Submitted</p>
+                  <p className="text-gray-800">{new Date(selectedReport.created_at).toLocaleString()}</p>
+                </div>
+              </div>
+            </div>
+            {selectedReport.status === "pending" && (
+              <div className="px-6 py-4 border-t border-gray-200 flex gap-3 justify-end">
+                <button
+                  onClick={() => { handleReportStatus(selectedReport.id, "dismissed"); setSelectedReport(null) }}
+                  disabled={processingReports.has(selectedReport.id)}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-300 disabled:opacity-50"
+                >Dismiss</button>
+                <button
+                  onClick={() => { handleReportStatus(selectedReport.id, "reviewed"); setSelectedReport(null) }}
+                  disabled={processingReports.has(selectedReport.id)}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 disabled:opacity-50"
+                >Mark Reviewed</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── COMMENT DETAIL MODAL ── */}
+      {selectedComment && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setSelectedComment(null)}>
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h3 className="text-base font-semibold text-gray-900">Comment Details</h3>
+              <button onClick={() => setSelectedComment(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div className="flex items-center gap-3">
+                <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                  selectedComment.moderation_status === "removed" ? "bg-red-100 text-red-800" : "bg-yellow-100 text-yellow-800"
+                }`}>{selectedComment.moderation_status}</span>
+              </div>
+              <div className="flex gap-6 text-sm">
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-0.5">Post</p>
+                  <p className="text-gray-800 font-medium">{selectedComment.post_name}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-0.5">Author</p>
+                  <p className="text-gray-800">{selectedComment.user_name}</p>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Comment</p>
+                <p className="text-sm text-gray-800 bg-gray-50 rounded-lg p-3 leading-relaxed whitespace-pre-wrap">{selectedComment.content ?? "(content removed)"}</p>
+              </div>
+              {selectedComment.removal_reason && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Removal Reason</p>
+                  <p className="text-sm text-red-700 bg-red-50 rounded-lg p-3">{selectedComment.removal_reason}</p>
+                </div>
+              )}
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-0.5">Date</p>
+                <p className="text-sm text-gray-700">{new Date(selectedComment.created_at).toLocaleString()}</p>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-200 flex gap-3 justify-end">
+              {selectedComment.moderation_status !== "removed" && (
+                <button
+                  onClick={() => { handleCommentModerate(selectedComment.id, "remove"); setSelectedComment(null) }}
+                  disabled={processingComments.has(selectedComment.id)}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 disabled:opacity-50"
+                >Remove Comment</button>
+              )}
+              {selectedComment.moderation_status === "removed" && (
+                <button
+                  onClick={() => { handleCommentModerate(selectedComment.id, "restore"); setSelectedComment(null) }}
+                  disabled={processingComments.has(selectedComment.id)}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 disabled:opacity-50"
+                >Restore Comment</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Party List Management Modal */}
       {filteredPosts.map((post) => (
@@ -844,14 +1462,11 @@ export default function AdminDashboard() {
                           // Set new timeout
                           const timeoutId = setTimeout(async () => {
                             try {
-                              const adminUserId = typeof window !== 'undefined' ? localStorage.getItem('admin_user_id') : null
                               const response = await fetch(
                                 `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/admin/partylists/search?q=${encodeURIComponent(query)}`,
                                 {
                                   credentials: "include",
-                                  headers: {
-                                    ...(adminUserId ? { 'X-User-Id': adminUserId } : {}),
-                                  },
+                                  headers: getAdminHeaders(),
                                 }
                               )
                               if (response.ok) {
@@ -930,15 +1545,12 @@ export default function AdminDashboard() {
                           setIsProcessingPartyList(prev => ({ ...prev, [post.id]: true }))
                           try {
                             const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
-                            const adminUserId = typeof window !== 'undefined' ? localStorage.getItem('admin_user_id') : null
-                            
                             const response = await fetch(
                               `${apiUrl}/admin/partylists/${partyListId}/members`,
                               {
                                 method: "POST",
-                                headers: { 
-                                  "Content-Type": "application/json",
-                                  ...(adminUserId ? { 'X-User-Id': adminUserId } : {}),
+                                headers: {
+                                  ...getAdminHeaders(),
                                 },
                                 credentials: "include",
                                 body: JSON.stringify({ post_id: post.id }),
@@ -957,7 +1569,8 @@ export default function AdminDashboard() {
                               await fetchPosts()
                             } else {
                               const error = await response.json()
-                              alert(error.message || "Failed to add member to party list")
+                              const fieldError = error.errors ? (Object.values(error.errors)[0] as any)?.[0] : null
+                              alert(fieldError || error.message || "Failed to add member to party list")
                             }
                           } catch (error) {
                             console.error("Failed to add member:", error)
@@ -983,15 +1596,12 @@ export default function AdminDashboard() {
                           setIsProcessingPartyList(prev => ({ ...prev, [post.id]: true }))
                           try {
                             const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
-                            const adminUserId = typeof window !== 'undefined' ? localStorage.getItem('admin_user_id') : null
-                            
                             const response = await fetch(
                               `${apiUrl}/admin/partylists`,
                               {
                                 method: "POST",
-                                headers: { 
-                                  "Content-Type": "application/json",
-                                  ...(adminUserId ? { 'X-User-Id': adminUserId } : {}),
+                                headers: {
+                                  ...getAdminHeaders(),
                                 },
                                 credentials: "include",
                                 body: JSON.stringify({
@@ -1013,7 +1623,8 @@ export default function AdminDashboard() {
                               await fetchPosts()
                             } else {
                               const error = await response.json()
-                              alert(error.message || "Failed to create party list")
+                              const fieldError = error.errors ? (Object.values(error.errors)[0] as any)?.[0] : null
+                              alert(fieldError || error.message || "Failed to create party list")
                             }
                           } catch (error) {
                             console.error("Failed to create party list:", error)

@@ -1,14 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { v2 as cloudinary } from 'cloudinary'
+import { unlink } from 'fs/promises'
+import path from 'path'
 
-cloudinary.config({
-  cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-})
+const CLOUDINARY_ENABLED = Boolean(
+  process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME &&
+  process.env.CLOUDINARY_API_KEY &&
+  process.env.CLOUDINARY_API_SECRET
+)
+
+if (CLOUDINARY_ENABLED) {
+  cloudinary.config({
+    cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  })
+}
 
 /**
- * Delete image from Cloudinary by public_id or URL
+ * Delete image from Cloudinary by public_id or URL.
+ *
+ * When the image is a locally-stored upload (url starts with /uploads/),
+ * the file is removed from public/uploads/ instead.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -16,6 +29,19 @@ export async function POST(request: NextRequest) {
 
     if (!publicId && !url) {
       return NextResponse.json({ error: 'publicId or url is required' }, { status: 400 })
+    }
+
+    if (typeof url === 'string') {
+      const pathname = url.startsWith('/') ? url : new URL(url, request.nextUrl.origin).pathname
+      if (pathname.startsWith('/uploads/')) {
+        const filePath = path.join(process.cwd(), 'public', pathname)
+        try {
+          await unlink(filePath)
+        } catch (error: any) {
+          if (error.code !== 'ENOENT') throw error
+        }
+        return NextResponse.json({ success: true, result: 'ok' })
+      }
     }
 
     let imagePublicId = publicId

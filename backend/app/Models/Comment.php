@@ -15,11 +15,14 @@ class Comment extends Model
         'content',
         'is_anonymous',
         'likes_count',
+        'moderation_status',
+        'removal_reason',
     ];
 
     protected $casts = [
         'is_anonymous' => 'boolean',
-        'likes_count' => 'integer',
+        'likes_count'        => 'integer',
+        'moderation_status'  => 'string',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

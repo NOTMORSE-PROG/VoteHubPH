@@ -485,7 +485,7 @@ export default function RegisterPage() {
                   ) : canResend ? (
                   <T>Resend OTP</T>
                   ) : (
-                    <T>Resend OTP ({Math.floor(otpTimer / 60)}:{(otpTimer % 60).toString().padStart(2, '0')})</T>
+                    <T>{`Resend OTP (${Math.floor(otpTimer / 60)}:${(otpTimer % 60).toString().padStart(2, '0')})`}</T>
                   )}
                 </Button>
               </form>

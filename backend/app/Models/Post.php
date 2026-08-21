@@ -23,8 +23,17 @@ class Post extends Model
         'party',
         'status',
         'admin_notes',
+        'verification_status',
+        'verified_at',
+        'is_flagged',
+        'flag_reason',
         'approved_at',
         'rejected_at',
+        'verification_document_type',
+        'verification_document_url',
+        'verification_document_notes',
+        'verification_requested_at',
+        'verification_method',
         'city_id',
         'district_id',
         'barangay_id',
@@ -36,6 +45,8 @@ class Post extends Model
         'images' => 'array',
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',
+        'verified_at' => 'datetime',
+        'is_flagged'  => 'boolean',
     ];
 
     public function user(): BelongsTo

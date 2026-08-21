@@ -10,11 +10,11 @@ use App\Http\Controllers\PostController;
 use App\Http\Controllers\CommentController;
 use App\Http\Controllers\VoteController;
 use App\Http\Controllers\PartyListController;
+use App\Http\Controllers\ReportController;
 
 // Public routes
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
-Route::post('/auth/google', [AuthController::class, 'googleCallback']);
 Route::post('/auth/send-otp', [AuthController::class, 'sendOtp']);
 Route::post('/auth/verify-otp', [AuthController::class, 'verifyOtp']);
 
@@ -72,9 +72,10 @@ Route::get('/locations/districts', [LocationController::class, 'getDistricts']);
 Route::get('/locations/barangays', [LocationController::class, 'getBarangays']);
 
 // Public party list routes (read-only)
+// IMPORTANT: Specific routes must come before parameterized routes
 Route::get('/partylists', [PartyListController::class, 'getPublicPartyLists']);
-Route::get('/partylists/{id}', [PartyListController::class, 'show']);
 Route::get('/partylists/search', [PartyListController::class, 'search']);
+Route::get('/partylists/{id}', [PartyListController::class, 'show']);
 
 // Admin login (public route)
 Route::post('/admin/login', [AuthController::class, 'adminLogin']);
@@ -85,7 +86,17 @@ Route::prefix('admin')->middleware('admin')->group(function () {
     Route::get('/posts/pending', [PostController::class, 'getPendingPosts']);
     Route::post('/posts/{id}/approve', [PostController::class, 'approve']);
     Route::post('/posts/{id}/reject', [PostController::class, 'reject']);
-    
+    Route::post('/posts/{id}/verify', [PostController::class, 'verify']);
+    Route::post('/posts/{id}/flag', [PostController::class, 'flag']);
+
+    // Reports
+    Route::get('/reports', [ReportController::class, 'index']);
+    Route::patch('/reports/{id}', [ReportController::class, 'update']);
+
+    // Comment moderation
+    Route::get('/comments/flagged', [CommentController::class, 'getFlagged']);
+    Route::post('/comments/{id}/moderate', [CommentController::class, 'moderate']);
+
     // Party list routes
     Route::get('/partylists', [PartyListController::class, 'index']);
     Route::get('/partylists/search', [PartyListController::class, 'search']);
@@ -110,6 +121,9 @@ Route::middleware('nextauth')->group(function () {
     // Comment routes
     Route::post('/posts/{postId}/comments', [CommentController::class, 'store']);
     Route::post('/comments/{commentId}/like', [CommentController::class, 'toggleLike']);
+
+    // Reports
+    Route::post('/reports', [ReportController::class, 'store']);
 
     // Vote routes
     Route::post('/posts/{postId}/vote', [VoteController::class, 'vote']);

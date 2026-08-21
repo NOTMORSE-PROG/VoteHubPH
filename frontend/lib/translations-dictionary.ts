@@ -54,7 +54,6 @@ export const translations: Record<string, Record<string, string>> = {
 
   // Candidate Card
   "View Profile": { fil: "Tingnan ang Profile", tl: "Tingnan ang Profile" },
-  "Running for": { fil: "Tumatakbo bilang", tl: "Tumatakbo bilang" },
   "Party": { fil: "Partido", tl: "Partido" },
   "Independent": { fil: "Independyente", tl: "Independyente" },
 
@@ -479,7 +478,6 @@ export const translations: Record<string, Record<string, string>> = {
     fil: "Mag-sign in sa iyong VoteHubPH account",
     tl: "Mag-sign in sa iyong VoteHubPH account"
   },
-  "Create Account": { fil: "Gumawa ng Account", tl: "Gumawa ng Account" },
   "Join VoteHubPH and make your voice heard": {
     fil: "Sumali sa VoteHubPH at ipahayag ang iyong tinig",
     tl: "Sumali sa VoteHubPH at ipahayag ang iyong tinig"
@@ -488,7 +486,6 @@ export const translations: Record<string, Record<string, string>> = {
     fil: "Ilagay ang OTP na ipinadala sa iyong email",
     tl: "Ilagay ang OTP na ipinadala sa iyong email"
   },
-  "Name": { fil: "Pangalan", tl: "Pangalan" },
   "Confirm Password": { fil: "Kumpirmahin ang Password", tl: "Kumpirmahin ang Password" },
   "At least 8 characters": { fil: "Hindi bababa sa 8 characters", tl: "Hindi bababa sa 8 characters" },
   "Send OTP": { fil: "Ipadala ang OTP", tl: "Ipadala ang OTP" },
@@ -501,8 +498,6 @@ export const translations: Record<string, Record<string, string>> = {
   "Verify OTP": { fil: "I-verify ang OTP", tl: "I-verify ang OTP" },
   "Verifying...": { fil: "Nagve-verify...", tl: "Nagve-verify..." },
   "Resend OTP": { fil: "Ipadala Muli ang OTP", tl: "Ipadala Muli ang OTP" },
-  "Already have an account?": { fil: "Mayroon na bang account?", tl: "Mayroon na bang account?" },
-  "Don't have an account?": { fil: "Walang account?", tl: "Walang account?" },
   "Sign up": { fil: "Mag-sign up", tl: "Mag-sign up" },
 
   // Profile Completion

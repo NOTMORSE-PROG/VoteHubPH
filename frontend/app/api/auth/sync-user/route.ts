@@ -15,25 +15,41 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    if (!token) {
+      return NextResponse.json(
+        { error: 'A verified registration token is required' },
+        { status: 401 }
+      )
+    }
+
+    const verificationResponse = await fetch(`${API_URL}/user/profile`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      cache: 'no-store',
+    })
+    if (!verificationResponse.ok) {
+      return NextResponse.json(
+        { error: 'The registration token is invalid or expired' },
+        { status: 401 }
+      )
+    }
+
+    const verifiedUser = await verificationResponse.json()
+    if (verifiedUser.email !== email || (userId && verifiedUser.id !== userId)) {
+      return NextResponse.json(
+        { error: 'The registration token does not match this user' },
+        { status: 403 }
+      )
+    }
+
     // Check if user already exists in Prisma
     const existingUser = await prisma.user.findUnique({
       where: { email }
     })
 
     if (existingUser) {
-      // User already exists - always update password if provided
-      if (password) {
-        const hashedPassword = await bcrypt.hash(password, 12)
-        await prisma.user.update({
-          where: { email },
-          data: { password: hashedPassword }
-        })
-        console.log('✅ Password updated for existing user in Prisma')
-      }
-
       return NextResponse.json({
         success: true,
-        message: password ? 'User synced and password updated' : 'User already synced',
+        message: 'User already synced',
         user: {
           id: existingUser.id,
           email: existingUser.email,
@@ -53,9 +69,17 @@ export async function POST(req: NextRequest) {
     }
 
     // Create user in Prisma with data from Laravel or provided data
-    const userData: any = {
+    const userData: {
+      id?: string
+      email: string
+      name: string
+      password?: string
+      provider: string
+      emailVerified: Date
+      profileCompleted: boolean
+    } = {
       email,
-      name: laravelUser?.name || name || email.split('@')[0],
+      name: verifiedUser.name || name || email.split('@')[0],
       provider: 'credentials',
       emailVerified: new Date(),
       profileCompleted: true, // No longer require profile completion
@@ -101,14 +125,10 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Return detailed error for debugging
     return NextResponse.json(
-      { 
+      {
         success: false,
-        error: 'Failed to sync user', 
-        details: error.message,
-        code: error.code,
-        meta: error.meta
+        error: 'Failed to sync user',
       },
       { status: 500 }
     )

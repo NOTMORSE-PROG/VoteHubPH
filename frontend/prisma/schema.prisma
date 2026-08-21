@@ -31,6 +31,11 @@ model User {
   language         String    @default("en") // "en" or "fil"
   profileCompleted Boolean   @default(false) // True when user completes profile after SSO
 
+  // Location (set via /complete-profile)
+  region        String?
+  city          String?
+  barangay      String?
+
   // Metadata
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -85,6 +90,25 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+// Laravel Sanctum tokens issued by the NextAuth server after a verified login.
+// The table is created by the existing Laravel Sanctum migration.
+model PersonalAccessToken {
+  id            BigInt    @id @default(autoincrement())
+  tokenableType String    @map("tokenable_type")
+  tokenableId   String    @map("tokenable_id")
+  name          String
+  token         String    @unique
+  abilities     String?
+  lastUsedAt    DateTime? @map("last_used_at")
+  expiresAt     DateTime? @map("expires_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([tokenableType, tokenableId])
+  @@index([expiresAt])
+  @@map("personal_access_tokens")
 }
 
 // ============================================

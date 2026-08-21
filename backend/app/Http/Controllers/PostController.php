@@ -15,6 +15,18 @@ class PostController extends Controller
         $this->postService = $postService;
     }
 
+    private function imageUrlRule(): \Closure
+    {
+        return function ($attribute, $value, $fail) {
+            if (!$value) return;
+            $allowed = ['res.cloudinary.com', 'upload.wikimedia.org', 'commons.wikimedia.org'];
+            $host = parse_url($value, PHP_URL_HOST);
+            if (!in_array($host, $allowed)) {
+                $fail("The $attribute must be hosted on an approved image provider (Cloudinary or Wikimedia).");
+            }
+        };
+    }
+
     /**
      * Create a new post (user)
      */
@@ -28,7 +40,6 @@ class PostController extends Controller
                 'string',
                 'max:255',
                 function ($attribute, $value, $fail) {
-                    // Reject "Party-List Representative" as it's not a valid position
                     if (strtolower(trim($value)) === 'party-list representative' || strtolower(trim($value)) === 'party list representative') {
                         $fail('Party-List Representative is not a valid position. Please select a valid position.');
                     }
@@ -42,9 +53,9 @@ class PostController extends Controller
             'achievements' => 'nullable|array',
             'achievements.*' => 'string',
             'images' => 'nullable|array',
-            'images.*.file' => 'nullable|string', // Cloudinary URL
+            'images.*.file' => ['nullable', 'string', 'url', $this->imageUrlRule()],
             'images.*.caption' => 'nullable|string|max:300',
-            'profile_photo' => 'nullable|string', // Cloudinary URL
+            'profile_photo' => ['nullable', 'string', 'url', $this->imageUrlRule()],
             'party' => 'nullable|string|max:255',
             'city_id' => 'nullable|integer|exists:cities,id',
             'district_id' => 'nullable|integer|exists:cities,id',
@@ -105,6 +116,13 @@ class PostController extends Controller
                         'user' => $post->user,
                         'votes_count' => $post->votes_count ?? 0,
                         'comments_count' => $post->comments_count ?? 0,
+                        'verification_status' => $post->verification_status ?? 'unverified',
+                        'verified_at' => $post->verified_at,
+                        'verification_method' => $post->verification_method,
+                        'is_flagged' => (bool) $post->is_flagged,
+                        'flag_reason' => $post->flag_reason,
+                        'approved_at' => $post->approved_at,
+                        'admin_notes' => $post->admin_notes,
                     ];
                 });
 
@@ -132,7 +150,7 @@ class PostController extends Controller
 
         // Get post with user in one query
         $post = \App\Models\Post::where('id', $id)
-            ->where('status', 'approved')
+            ->whereIn('status', ['approved', 'rejected'])
             ->with('user:id,name,email')
             ->firstOrFail();
 
@@ -185,10 +203,36 @@ class PostController extends Controller
 
     private function formatCommentForDisplay($comment, $userId, $userLikedCommentIds = [])
     {
-        $formatted = [
+        $replies = [];
+        if ($comment->relationLoaded('replies')) {
+            $replies = $comment->replies->map(function ($reply) use ($userId, $userLikedCommentIds) {
+                return $this->formatCommentForDisplay($reply, $userId, $userLikedCommentIds);
+            })->toArray();
+        }
+
+        if (($comment->moderation_status ?? 'visible') === 'removed') {
+            return [
+                'id' => $comment->id,
+                'post_id' => $comment->post_id,
+                'parent_id' => $comment->parent_id,
+                'removed' => true,
+                'removal_reason' => $comment->removal_reason,
+                'content' => null,
+                'user_id' => null,
+                'user_name' => null,
+                'is_anonymous' => null,
+                'likes_count' => 0,
+                'created_at' => $comment->created_at,
+                'user_has_liked' => false,
+                'replies' => $replies,
+            ];
+        }
+
+        return [
             'id' => $comment->id,
             'post_id' => $comment->post_id,
             'parent_id' => $comment->parent_id,
+            'removed' => false,
             'user_id' => $comment->user_id,
             'user_name' => $comment->is_anonymous ? 'Anonymous' : $comment->user->name,
             'content' => $comment->content,
@@ -196,16 +240,8 @@ class PostController extends Controller
             'likes_count' => $comment->likes_count,
             'created_at' => $comment->created_at,
             'user_has_liked' => in_array($comment->id, $userLikedCommentIds),
-            'replies' => [],
+            'replies' => $replies,
         ];
-
-        if ($comment->relationLoaded('replies')) {
-            $formatted['replies'] = $comment->replies->map(function ($reply) use ($userId, $userLikedCommentIds) {
-                return $this->formatCommentForDisplay($reply, $userId, $userLikedCommentIds);
-            })->toArray();
-        }
-
-        return $formatted;
     }
 
     /**
@@ -262,11 +298,12 @@ class PostController extends Controller
     public function approve(Request $request, $id)
     {
         // TODO: Add admin middleware check
-        $post = $this->postService->approvePost($id);
+        $result = $this->postService->approvePost($id);
 
         return response()->json([
             'message' => 'Post approved successfully',
-            'post' => $post,
+            'post' => $result['post'],
+            'party_list_action' => $result['party_list_action'],
         ]);
     }
 
@@ -315,9 +352,9 @@ class PostController extends Controller
             'achievements' => 'nullable|array',
             'achievements.*' => 'string',
             'images' => 'nullable|array',
-            'images.*.file' => 'nullable|string',
+            'images.*.file' => ['nullable', 'string', 'url', $this->imageUrlRule()],
             'images.*.caption' => 'nullable|string|max:300',
-            'profile_photo' => 'nullable|string',
+            'profile_photo' => ['nullable', 'string', 'url', $this->imageUrlRule()],
             'party' => 'nullable|string|max:255',
             'city_id' => 'nullable|integer|exists:cities,id',
             'district_id' => 'nullable|integer|exists:cities,id',
@@ -332,11 +369,46 @@ class PostController extends Controller
                 'message' => 'Post updated successfully and pending admin approval',
                 'post' => $post,
             ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return response()->json([
                 'message' => $e->getMessage(),
             ], 403);
         }
+    }
+
+    /**
+     * Mark a post as officially verified (admin only)
+     */
+    public function verify(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'verification_method' => 'nullable|string|max:100',
+        ]);
+        $post = \App\Models\Post::where('id', $id)->where('status', 'approved')->firstOrFail();
+        $post->update([
+            'verification_status' => 'verified',
+            'verified_at'         => now(),
+            'verification_method' => $validated['verification_method'] ?? null,
+        ]);
+        return response()->json(['message' => 'Post verified successfully.', 'post' => $post]);
+    }
+
+    /**
+     * Flag a post for review (admin only)
+     */
+    public function flag(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'flag_reason' => 'nullable|string|max:255',
+        ]);
+        $post = \App\Models\Post::where('id', $id)->where('status', 'approved')->firstOrFail();
+        $post->update([
+            'is_flagged' => true,
+            'flag_reason' => $validated['flag_reason'] ?? null,
+        ]);
+        return response()->json(['message' => 'Post flagged for review.', 'post' => $post]);
     }
 
     /**

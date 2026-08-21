@@ -99,6 +99,23 @@ class AuthController extends Controller
             'password' => $request->password,
         ], now()->addMinutes(5));
 
+        $deliveryFailure = function (string $reason) use ($otpCode) {
+            if (app()->environment(['local', 'testing'])) {
+                return response()->json([
+                    'message' => 'OTP generated for local testing.',
+                    'success' => true,
+                    'otp' => $otpCode,
+                    'warning' => $reason,
+                    'email_sent' => false,
+                ]);
+            }
+
+            return response()->json([
+                'error' => 'Unable to deliver the verification code. Please try again later.',
+                'success' => false,
+            ], 503);
+        };
+
         // Send OTP email
         try {
             // Check if mail is configured (support both SMTP and Resend)
@@ -110,14 +127,8 @@ class AuthController extends Controller
                 // Check Resend configuration
                 $resendKey = config('services.resend.key');
                 if (empty($resendKey)) {
-                    \Log::warning('Resend API key not configured. Returning OTP in response for: ' . $request->email);
-                    return response()->json([
-                        'message' => 'OTP generated. Check your email. If you did not receive it, use the code below.',
-                        'success' => true,
-                        'otp' => $otpCode,
-                        'warning' => 'Resend API key is missing. Please configure RESEND_KEY in environment variables.',
-                        'email_sent' => false,
-                    ]);
+                    \Log::warning('Resend API key not configured for OTP delivery.');
+                    return $deliveryFailure('Resend API key is missing.');
                 }
             } elseif ($isSmtp) {
                 // Check SMTP configuration
@@ -126,28 +137,19 @@ class AuthController extends Controller
                 $mailPassword = config('mail.mailers.smtp.password');
                 
                 if (empty($mailHost) || empty($mailUsername) || empty($mailPassword)) {
-                    \Log::warning('SMTP not configured. Returning OTP in response for: ' . $request->email);
-                    return response()->json([
-                        'message' => 'OTP generated. Check your email. If you did not receive it, use the code below.',
-                        'success' => true,
-                        'otp' => $otpCode,
-                        'warning' => 'SMTP configuration is missing. Please configure SMTP settings.',
-                        'email_sent' => false,
-                    ]);
+                    \Log::warning('SMTP not configured for OTP delivery.');
+                    return $deliveryFailure('SMTP configuration is missing.');
                 }
                 
-                // SMTP configuration is already set in config/mail.php
-                // No need to reconfigure here as it uses env variables
+                // Configure mail settings with proper timeout and encryption
+                config([
+                    'mail.mailers.smtp.timeout' => 30,
+                    'mail.mailers.smtp.encryption' => env('MAIL_ENCRYPTION', 'tls'),
+                ]);
             } else {
                 // Unknown mailer or not configured
-                \Log::warning('Mail not configured. Returning OTP in response for: ' . $request->email);
-                return response()->json([
-                    'message' => 'OTP generated. Check your email. If you did not receive it, use the code below.',
-                    'success' => true,
-                    'otp' => $otpCode,
-                    'warning' => 'Mail configuration is missing. Please configure MAIL_MAILER and credentials.',
-                    'email_sent' => false,
-                ]);
+                \Log::warning('Mail is not configured for OTP delivery.');
+                return $deliveryFailure('Mail configuration is missing.');
             }
             
             Mail::to($request->email)->send(new OtpMail($otpCode));
@@ -158,16 +160,7 @@ class AuthController extends Controller
             \Log::error('Email error details: ' . $e->getTraceAsString());
             \Log::error('Mail config - Host: ' . config('mail.mailers.smtp.host') . ', Username: ' . config('mail.mailers.smtp.username'));
             
-            // Always return OTP in response if email fails (for debugging and user experience)
-            // This allows users to complete registration even if email service is down
-            \Log::warning('OTP email failed, returning OTP in response for: ' . $request->email);
-            return response()->json([
-                'message' => 'OTP generated. Check your email. If you did not receive it, use the code below.',
-                'success' => true,
-                'otp' => $otpCode, // Return OTP in response as fallback
-                'warning' => 'Email sending failed: ' . $e->getMessage(),
-                'email_sent' => false,
-            ]);
+            return $deliveryFailure('Email delivery failed.');
         }
 
         return response()->json([
@@ -407,9 +400,11 @@ class AuthController extends Controller
         // Update last login
         $user->update(['lastLoginAt' => now()]);
 
-        // Return success (admin dashboard will use session-based auth)
+        $token = $user->createToken('admin-dashboard', ['*'], now()->addHours(12))->plainTextToken;
+
         return response()->json([
             'message' => 'Admin login successful',
+            'token' => $token,
             'user' => [
                 'id' => $user->id,
                 'email' => $user->email,

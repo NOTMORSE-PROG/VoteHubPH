@@ -25,23 +25,16 @@ class StatisticsController extends Controller
             // Total votes cast
             $totalVotes = Vote::count();
 
-            // User distribution by region
-            $regionDistribution = User::select('region', DB::raw('COUNT(*) as count'))
-                ->whereNotNull('region')
-                ->groupBy('region')
-                ->orderBy('count', 'DESC')
-                ->get();
-
             // Most active users (by comments)
-            $mostActiveUsers = User::select('users.id', 'users.name', DB::raw('COUNT(comments.id) as comment_count'))
-                ->leftJoin('comments', 'users.id', '=', 'comments.user_id')
-                ->groupBy('users.id', 'users.name')
+            $mostActiveUsers = User::select('User.id', 'User.name', DB::raw('COUNT(comments.id) as comment_count'))
+                ->leftJoin('comments', 'User.id', '=', 'comments.user_id')
+                ->groupBy('User.id', 'User.name')
                 ->orderBy('comment_count', 'DESC')
                 ->limit(10)
                 ->get();
 
             // Recent activity counts (last 30 days)
-            $recentUsers = User::where('created_at', '>=', now()->subDays(30))->count();
+            $recentUsers = User::where('createdAt', '>=', now()->subDays(30))->count();
             $recentComments = Comment::where('created_at', '>=', now()->subDays(30))->count();
             $recentVotes = Vote::where('created_at', '>=', now()->subDays(30))->count();
 
@@ -56,7 +49,6 @@ class StatisticsController extends Controller
                     'new_discussions_30d' => $recentComments,
                     'new_votes_30d' => $recentVotes,
                 ],
-                'region_distribution' => $regionDistribution,
                 'most_active_users' => $mostActiveUsers,
             ], 200);
         } catch (\Exception $e) {

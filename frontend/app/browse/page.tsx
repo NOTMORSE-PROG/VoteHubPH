@@ -46,25 +46,14 @@ export default function BrowsePage() {
   const [view, setView] = useState<"candidates" | "statistics" | "elections">(
     (viewParam === "statistics" ? "candidates" : viewParam) as "candidates" | "statistics" | "elections",
   )
-  // Load selected location from localStorage on mount
+  // Location is restored from localStorage post-mount via restoreLocationFromStorage()
+  // (kept null on initial render to match SSR output and avoid hydration mismatches)
   const [selectedLocation, setSelectedLocation] = useState<{
     regionId: string
     cityId: string
     districtId?: string
     barangayId: string
-  } | null>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('browse_selected_location')
-      if (saved) {
-        try {
-          return JSON.parse(saved)
-        } catch (e) {
-          return null
-        }
-      }
-    }
-    return null
-  })
+  } | null>(null)
   const [selectedStatus, setSelectedStatus] = useState<string>("all")
   const [selectedPosition, setSelectedPosition] = useState<string>("all")
   const [searchQuery, setSearchQuery] = useState("")

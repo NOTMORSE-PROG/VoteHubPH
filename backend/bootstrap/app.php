@@ -43,6 +43,31 @@ return Application::configure(basePath: dirname(__DIR__))
         // Return JSON errors for API routes
         $exceptions->render(function (\Throwable $e, \Illuminate\Http\Request $request) {
             if ($request->is('api/*')) {
+                // Preserve correct status codes/bodies for standard framework exceptions
+                if ($e instanceof \Illuminate\Validation\ValidationException) {
+                    return response()->json([
+                        'message' => 'The given data was invalid.',
+                        'errors' => $e->errors(),
+                    ], $e->status);
+                }
+
+                if ($e instanceof \Illuminate\Database\Eloquent\ModelNotFoundException
+                    || $e instanceof \Symfony\Component\HttpKernel\Exception\NotFoundHttpException) {
+                    return response()->json(['message' => 'Not Found'], 404);
+                }
+
+                if ($e instanceof \Illuminate\Auth\AuthenticationException) {
+                    return response()->json(['message' => 'Unauthenticated'], 401);
+                }
+
+                if ($e instanceof \Illuminate\Auth\Access\AuthorizationException) {
+                    return response()->json(['message' => 'Forbidden'], 403);
+                }
+
+                if ($e instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface) {
+                    return response()->json(['message' => $e->getMessage() ?: 'Error'], $e->getStatusCode());
+                }
+
                 \Log::error('API Error: ' . $e->getMessage(), [
                     'exception' => get_class($e),
                     'file' => $e->getFile(),
@@ -57,12 +82,12 @@ return Application::configure(basePath: dirname(__DIR__))
                     'error' => 'Internal Server Error',
                     'message' => $errorMessage,
                 ];
-                
+
                 // Include more details if it's a database error
                 if (str_contains($errorMessage, 'SQLSTATE') || str_contains($errorMessage, 'database') || str_contains($errorMessage, 'table')) {
                     $errorDetails['type'] = 'database_error';
                 }
-                
+
                 return response()->json($errorDetails, 500);
             }
         });

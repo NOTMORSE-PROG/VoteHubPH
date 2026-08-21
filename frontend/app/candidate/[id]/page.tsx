@@ -6,13 +6,15 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
-import { ArrowLeft, MapPin, Loader2, GraduationCap, Trophy, Flag, ThumbsUp, MessageSquare, Vote as VoteIcon, Heart, Reply, ChevronDown, ChevronUp } from "lucide-react"
+import { ArrowLeft, MapPin, Loader2, GraduationCap, Trophy, Flag, ThumbsUp, MessageSquare, Vote as VoteIcon, Heart, Reply, ChevronDown, ChevronUp, AlertTriangle, CheckCircle } from "lucide-react"
 import Link from "next/link"
-import { useState, useEffect, memo } from "react"
+import { useState, useEffect, memo, useCallback } from "react"
 import { useSearchParams } from "next/navigation"
 import { useSession } from "next-auth/react"
 import Image from "next/image"
 import { authenticatedFetch } from "@/lib/api-client"
+import { VerificationBadge } from "@/components/verification-badge"
+import { ReportModal } from "@/components/report-modal"
 
 interface Post {
   id: number
@@ -28,6 +30,13 @@ interface Post {
   profile_photo?: string | null
   party?: string | null
   status: string
+  admin_notes?: string | null
+  verification_status?: string | null
+  verified_at?: string | null
+  verification_method?: string | null
+  is_flagged?: boolean
+  flag_reason?: string | null
+  approved_at?: string | null
   created_at: string
   updated_at: string
   user: {
@@ -41,13 +50,15 @@ interface Comment {
   id: number
   post_id: number
   parent_id?: number | null
-  user_id: string
-  user_name: string
-  content: string
-  is_anonymous: boolean
+  user_id: string | null
+  user_name: string | null
+  content: string | null
+  is_anonymous: boolean | null
   likes_count: number
   created_at: string
   user_has_liked: boolean
+  removed?: boolean
+  removal_reason?: string | null
   replies: Comment[]
 }
 
@@ -56,6 +67,7 @@ const CommentItem = memo(function CommentItem({
   depth,
   onLike,
   onReply,
+  onReport,
   replyingTo,
   replyContent,
   replyAnonymous,
@@ -69,6 +81,7 @@ const CommentItem = memo(function CommentItem({
   depth: number
   onLike: (id: number) => void
   onReply: (id: number) => void
+  onReport: (id: number) => void
   replyingTo: number | null
   replyContent: string
   replyAnonymous: boolean
@@ -83,15 +96,26 @@ const CommentItem = memo(function CommentItem({
 
   return (
     <div className={`space-y-3 ${indent}`}>
+      {comment.removed ? (
+        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/20 border border-dashed border-muted-foreground/30">
+          <AlertTriangle className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+          <div className="text-sm text-muted-foreground italic">
+            This comment was removed by the moderator.
+            {comment.removal_reason && (
+              <span className="ml-1 not-italic text-xs">Reason: {comment.removal_reason}</span>
+            )}
+          </div>
+        </div>
+      ) : (
       <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/30">
         <Avatar className="h-10 w-10 border-2 flex-shrink-0">
           <AvatarFallback className="bg-primary/10">
-            {comment.is_anonymous ? "?" : comment.user_name[0]}
+            {comment.is_anonymous ? "?" : (comment.user_name?.[0] ?? "?")}
           </AvatarFallback>
         </Avatar>
         <div className="flex-1 space-y-2 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-semibold">{comment.user_name}</span>
+            <span className="font-semibold">{comment.user_name ?? "Anonymous"}</span>
             <span className="text-xs text-muted-foreground">
               {new Date(comment.created_at).toLocaleDateString()}
             </span>
@@ -120,6 +144,15 @@ const CommentItem = memo(function CommentItem({
                 Reply
               </Button>
             )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 ml-auto text-muted-foreground hover:text-red-500"
+              onClick={() => onReport(comment.id)}
+              title="Report comment"
+            >
+              <Flag className="h-3 w-3" />
+            </Button>
           </div>
 
           {/* Reply Form */}
@@ -169,6 +202,7 @@ const CommentItem = memo(function CommentItem({
           )}
         </div>
       </div>
+      )} {/* end else (not removed) */}
 
       {/* Render replies recursively */}
       {comment.replies && comment.replies.length > 0 && (
@@ -180,6 +214,7 @@ const CommentItem = memo(function CommentItem({
               depth={depth + 1}
               onLike={onLike}
               onReply={onReply}
+              onReport={onReport}
               replyingTo={replyingTo}
               replyContent={replyContent}
               replyAnonymous={replyAnonymous}
@@ -221,7 +256,12 @@ export default function CandidatePage({ params }: { params: { id: string } }) {
   const [hasVoted, setHasVoted] = useState(false)
   const [isVoteAnonymous, setIsVoteAnonymous] = useState(true)
   const [isSubmittingVote, setIsSubmittingVote] = useState(false)
+  const [voteConfirmation, setVoteConfirmation] = useState<string | null>(null)
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({})
+
+  // Report modal state
+  const [reportTarget, setReportTarget] = useState<{ type: "post" | "comment"; id: number } | null>(null)
+
 
   // Optimized: Fetch all data in a single API call
   useEffect(() => {
@@ -280,18 +320,19 @@ export default function CandidatePage({ params }: { params: { id: string } }) {
 
       if (response.ok) {
         const data = await response.json()
-        // Sync with server response
         setHasVoted(data.voted)
         setVotesCount(data.votes_count)
+        if (data.voted) {
+          setVoteConfirmation("✓ Your vote has been recorded.")
+          setTimeout(() => setVoteConfirmation(null), 3000)
+        }
       } else {
-        // Revert on error
         setHasVoted(previousVoted)
         setVotesCount(previousCount)
         alert("Failed to record vote")
       }
     } catch (error) {
       console.error("Failed to vote:", error)
-      // Revert on error
       setHasVoted(previousVoted)
       setVotesCount(previousCount)
       alert("Failed to record vote")
@@ -685,6 +726,27 @@ export default function CandidatePage({ params }: { params: { id: string } }) {
         <div className="grid lg:grid-cols-3 gap-8">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
+            {/* Flagged content banner */}
+            {post.is_flagged && (
+              <div className="flex items-center gap-3 p-4 bg-orange-50 border border-orange-200 rounded-lg text-orange-800">
+                <AlertTriangle className="h-5 w-5 flex-shrink-0" />
+                <p className="text-sm font-medium">
+                  This content has been flagged for review by our moderation team.
+                </p>
+              </div>
+            )}
+
+            {/* Admin notes — shown publicly for rejected/flagged posts */}
+            {post.admin_notes && (
+              <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
+                <AlertTriangle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold mb-0.5">Moderation note:</p>
+                  <p className="text-sm">{post.admin_notes}</p>
+                </div>
+              </div>
+            )}
+
             <Card>
               <CardContent className="pt-6">
                 <div className="flex flex-col md:flex-row gap-6">
@@ -717,6 +779,24 @@ export default function CandidatePage({ params }: { params: { id: string } }) {
                         <MapPin className="h-3 w-3 mr-1" />
                         {post.level}
                       </Badge>
+                    </div>
+
+                    {/* Verification badge */}
+                    <div className="flex flex-wrap items-center justify-center md:justify-start gap-3">
+                      <VerificationBadge status={post.verification_status} verifiedAt={post.verified_at ?? undefined} method={post.verification_method ?? undefined} />
+                      {post.approved_at && (
+                        <span className="text-xs text-muted-foreground">
+                          Approved {new Date(post.approved_at).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
+                        </span>
+                      )}
+                      <button
+                        onClick={() => setReportTarget({ type: "post", id: post.id })}
+                        className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-red-500 transition-colors"
+                        title="Report this candidate profile"
+                      >
+                        <Flag className="h-3 w-3" />
+                        Report
+                      </button>
                     </div>
                     <div className="flex items-center justify-center md:justify-start gap-6 text-sm">
                       <div className="flex items-center gap-2 text-muted-foreground">
@@ -991,6 +1071,7 @@ export default function CandidatePage({ params }: { params: { id: string } }) {
                           setReplyContent("")
                           setReplyAnonymous(false)
                         }}
+                        onReport={(commentId) => setReportTarget({ type: "comment", id: commentId })}
                         replyingTo={replyingTo}
                         replyContent={replyContent}
                         replyAnonymous={replyAnonymous}
@@ -1039,9 +1120,15 @@ export default function CandidatePage({ params }: { params: { id: string } }) {
                     />
                     Vote anonymously
                   </label>
+                  {voteConfirmation && (
+                    <p className="flex items-center gap-1.5 text-sm text-green-600 font-medium">
+                      <CheckCircle className="h-4 w-4" />
+                      {voteConfirmation}
+                    </p>
+                  )}
                 </div>
                 <p className="text-xs text-muted-foreground text-center leading-relaxed">
-                  This is a community poll to gauge voter sentiment.{" "}
+                  This is a community sentiment poll, not an official election.{" "}
                   {isVoteAnonymous ? "Your vote will be anonymous" : "Your name will be shown with your vote"} and
                   helps others understand public opinion.
                 </p>
@@ -1071,11 +1158,6 @@ export default function CandidatePage({ params }: { params: { id: string } }) {
                     </div>
                   </>
                 )}
-                <Separator />
-                <div>
-                  <p className="text-sm text-muted-foreground">Submitted by</p>
-                  <p className="font-semibold">{post.user.name}</p>
-                </div>
               </CardContent>
             </Card>
 
@@ -1090,9 +1172,19 @@ export default function CandidatePage({ params }: { params: { id: string } }) {
                 </p>
               </CardContent>
             </Card>
+
           </aside>
         </div>
       </div>
+
+      {/* Report Modal */}
+      {reportTarget && (
+        <ReportModal
+          type={reportTarget.type}
+          targetId={reportTarget.id}
+          onClose={() => setReportTarget(null)}
+        />
+      )}
     </div>
   )
 }

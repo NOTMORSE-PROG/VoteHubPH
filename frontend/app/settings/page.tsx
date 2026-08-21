@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { signOut, useSession, update as updateSession } from "next-auth/react"
+import { signOut, useSession } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { ArrowLeft, Lock, Globe, HelpCircle, Trash2, LogOut, User, X, Loader2 } from "lucide-react"
+import { ArrowLeft, Lock, Globe, HelpCircle, Trash2, LogOut, User, X, Loader2, MapPin, Clock, EyeOff } from "lucide-react"
 import { useLanguage } from "@/lib/language-context"
 import { T } from "@/components/auto-translate"
 import { useToast } from "@/hooks/use-toast"
@@ -16,10 +16,11 @@ import { authenticatedFetch } from "@/lib/api-client"
 
 export default function SettingsPage() {
   const router = useRouter()
-  const { data: session } = useSession()
+  const { data: session, update: updateSession } = useSession()
   const { language, setLanguage } = useLanguage()
   const { toast } = useToast()
   const [anonymousVoting, setAnonymousVoting] = useState(true)
+  const [hideActivity, setHideActivity] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   
@@ -45,6 +46,11 @@ export default function SettingsPage() {
     const savedAnonymousVoting = localStorage.getItem("anonymousVoting")
     if (savedAnonymousVoting !== null) {
       setAnonymousVoting(JSON.parse(savedAnonymousVoting))
+    }
+
+    const savedHideActivity = localStorage.getItem("hideActivity")
+    if (savedHideActivity !== null) {
+      setHideActivity(JSON.parse(savedHideActivity))
     }
 
     // Load user profile data from session initially
@@ -248,7 +254,7 @@ export default function SettingsPage() {
       })
 
       // Update session in background
-      updateSession().catch(error => {
+      updateSession().catch((error: unknown) => {
         console.error("Failed to update session:", error)
       })
 
@@ -476,6 +482,17 @@ export default function SettingsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Location Privacy */}
+              <div className="flex items-start gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                <MapPin className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-green-800 dark:text-green-300 text-sm">Location Privacy</p>
+                  <p className="text-xs text-green-700 dark:text-green-400 mt-0.5">
+                    Only your city/barangay is stored — your exact GPS coordinates are never saved or shared.
+                  </p>
+                </div>
+              </div>
+
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-medium"><T>Anonymous Voting</T></p>
@@ -488,6 +505,39 @@ export default function SettingsPage() {
                 >
                   {anonymousVoting ? <T>Enabled</T> : <T>Disabled</T>}
                 </Button>
+              </div>
+
+              {/* Activity Visibility */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium flex items-center gap-1.5">
+                    <EyeOff className="h-4 w-4" />
+                    <T>Hide Activity</T>
+                  </p>
+                  <p className="text-sm text-muted-foreground"><T>Hide your voting and comment activity from your public profile</T></p>
+                </div>
+                <Button
+                  variant={hideActivity ? "default" : "outline"}
+                  onClick={() => {
+                    const v = !hideActivity
+                    setHideActivity(v)
+                    localStorage.setItem("hideActivity", JSON.stringify(v))
+                  }}
+                  className="gap-2"
+                >
+                  {hideActivity ? <T>Hidden</T> : <T>Visible</T>}
+                </Button>
+              </div>
+
+              {/* Session Timeout Info */}
+              <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                <Clock className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                <div>
+                  <p className="font-medium text-sm"><T>Auto-Logout</T></p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    <T>You'll be signed out automatically after 30 minutes of inactivity.</T>
+                  </p>
+                </div>
               </div>
 
               <div className="pt-4 border-t">

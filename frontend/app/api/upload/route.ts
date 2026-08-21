@@ -1,15 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { v2 as cloudinary } from 'cloudinary'
+import { randomUUID } from 'crypto'
+import { mkdir, writeFile } from 'fs/promises'
+import path from 'path'
 
-cloudinary.config({
-  cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-})
+const CLOUDINARY_ENABLED = Boolean(
+  process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME &&
+  process.env.CLOUDINARY_API_KEY &&
+  process.env.CLOUDINARY_API_SECRET
+)
+
+if (CLOUDINARY_ENABLED) {
+  cloudinary.config({
+    cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  })
+}
 
 /**
  * Upload image to Cloudinary with organized folder structure
  * Folders: votehubph/posts, votehubph/profiles, votehubph/banners
+ *
+ * When Cloudinary credentials are not configured (local development),
+ * images are written to public/uploads/<folder>/ instead.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -34,6 +48,20 @@ export async function POST(request: NextRequest) {
     // Convert file to buffer
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
+
+    if (!CLOUDINARY_ENABLED) {
+      const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')
+      const fileName = `${randomUUID()}-${safeName}`
+      const uploadDir = path.join(process.cwd(), 'public', 'uploads', folder)
+      await mkdir(uploadDir, { recursive: true })
+      await writeFile(path.join(uploadDir, fileName), buffer)
+
+      return NextResponse.json({
+        success: true,
+        url: `${request.nextUrl.origin}/uploads/${folder}/${fileName}`,
+        publicId: `local/${folder}/${fileName}`,
+      })
+    }
 
     // Upload to Cloudinary with organized folder structure
     const result = await new Promise((resolve, reject) => {

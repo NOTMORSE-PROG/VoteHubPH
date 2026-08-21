@@ -33,7 +33,8 @@ export default function AdminLoginPage() {
         // Store admin session info
         if (typeof window !== 'undefined') {
           localStorage.setItem('admin_authenticated', 'true')
-          localStorage.setItem('admin_user_id', data.user.id)
+          localStorage.setItem('admin_token', data.token)
+          localStorage.removeItem('admin_user_id')
         }
         // Use hard redirect to ensure page fully reloads and authentication is checked
         window.location.href = "/"

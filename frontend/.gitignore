@@ -36,5 +36,9 @@ page-old.tsx
 # Admin folder (not for production)
 admin/
 
+# Local image upload fallback (used when Cloudinary is not configured)
+/public/uploads/*
+!/public/uploads/.gitkeep
+
 # Claude Code
 .claude/

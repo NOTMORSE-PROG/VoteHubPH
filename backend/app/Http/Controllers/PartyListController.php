@@ -23,8 +23,7 @@ class PartyListController extends Controller
             return response()->json([]);
         }
 
-        // Check if this is an admin request (has X-User-Id header)
-        $isAdmin = $request->header('X-User-Id') !== null;
+        $isAdmin = $request->get('authenticated_admin_id') !== null;
         
         // Case-insensitive search using LOWER() for cross-database compatibility
         $queryLower = strtolower($query);
@@ -213,4 +212,3 @@ class PartyListController extends Controller
         }
     }
 }
-

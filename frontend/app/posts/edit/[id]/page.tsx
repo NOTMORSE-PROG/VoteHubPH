@@ -577,10 +577,13 @@ export default function EditPostPage() {
 
       if (!response.ok) {
         const errorData = await response.json()
+        const errors = errorData.errors as Record<string, string | string[]> | undefined
+        const firstError = errors ? Object.values(errors)[0] : undefined
+        const fieldError = Array.isArray(firstError) ? firstError[0] : firstError
         toast({
           variant: "destructive",
           title: "Error",
-          description: errorData.message || "Failed to update post",
+          description: fieldError || errorData.message || "Failed to update post",
         })
         setIsLoading(false)
         return

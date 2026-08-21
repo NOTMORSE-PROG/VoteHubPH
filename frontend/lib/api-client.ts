@@ -1,8 +1,8 @@
 import { getSession } from "next-auth/react"
 
 /**
- * Authenticated fetch wrapper that automatically includes the user ID header
- * for Laravel backend authentication
+ * Authenticated fetch wrapper that forwards the Sanctum token issued after a
+ * verified NextAuth login. A caller-controlled user ID is never trusted.
  */
 export async function authenticatedFetch(
   url: string,
@@ -10,15 +10,12 @@ export async function authenticatedFetch(
 ): Promise<Response> {
   const session = await getSession()
   
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-    ...options.headers,
-  }
+  const headers = new Headers(options.headers)
+  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json")
+  if (!headers.has("Accept")) headers.set("Accept", "application/json")
   
-  // Add user ID header for Laravel authentication (works with JWT sessions)
-  if (session?.user?.id) {
-    headers['X-User-Id'] = session.user.id
+  if (session?.user?.backendToken) {
+    headers.set("Authorization", `Bearer ${session.user.backendToken}`)
   }
   
   return fetch(url, {

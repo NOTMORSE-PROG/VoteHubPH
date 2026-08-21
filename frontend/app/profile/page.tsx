@@ -201,7 +201,7 @@ export default function ProfilePage() {
     )
   }
 
-  if (!userData && !isLoading) {
+  if (!userData) {
     return (
       <div className="min-h-screen flex items-center justify-center flex-col gap-4">
         <p className="text-muted-foreground"><T>Failed to load profile data</T></p>

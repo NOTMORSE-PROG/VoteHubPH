@@ -497,7 +497,6 @@ export function LocationSelector({
         barangayId: "",
       }
       onChange?.(location)
-      onLocationChange?.(location)
     }
   }
 
@@ -514,9 +513,7 @@ export function LocationSelector({
       districtId: selectedDistrict || undefined,
       barangayId,
     }
-    // Call both callbacks for compatibility
     onChange?.(location)
-    onLocationChange?.(location)
   }
 
   // Compact mode - just the select fields without Card wrapper

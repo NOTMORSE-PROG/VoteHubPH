@@ -44,10 +44,36 @@ class CommentController extends Controller
 
     protected function formatComment($comment, $userId)
     {
-        $formatted = [
+        $replies = [];
+        if ($comment->relationLoaded('replies')) {
+            $replies = $comment->replies->map(function ($reply) use ($userId) {
+                return $this->formatComment($reply, $userId);
+            })->toArray();
+        }
+
+        if (($comment->moderation_status ?? 'visible') === 'removed') {
+            return [
+                'id' => $comment->id,
+                'post_id' => $comment->post_id,
+                'parent_id' => $comment->parent_id,
+                'removed' => true,
+                'removal_reason' => $comment->removal_reason,
+                'content' => null,
+                'user_id' => null,
+                'user_name' => null,
+                'is_anonymous' => null,
+                'likes_count' => 0,
+                'created_at' => $comment->created_at,
+                'user_has_liked' => false,
+                'replies' => $replies,
+            ];
+        }
+
+        return [
             'id' => $comment->id,
             'post_id' => $comment->post_id,
             'parent_id' => $comment->parent_id,
+            'removed' => false,
             'user_id' => $comment->user_id,
             'user_name' => $comment->is_anonymous ? 'Anonymous' : $comment->user->name,
             'content' => $comment->content,
@@ -57,25 +83,42 @@ class CommentController extends Controller
             'user_has_liked' => $userId ? CommentLike::where('comment_id', $comment->id)
                 ->where('user_id', $userId)
                 ->exists() : false,
-            'replies' => [],
+            'replies' => $replies,
         ];
-
-        // Recursively format replies
-        if ($comment->relationLoaded('replies')) {
-            $formatted['replies'] = $comment->replies->map(function ($reply) use ($userId) {
-                return $this->formatComment($reply, $userId);
-            })->toArray();
-        }
-
-        return $formatted;
     }
 
     protected function formatCommentOptimized($comment, $userId, $userLikedCommentIds = [])
     {
-        $formatted = [
+        $replies = [];
+        if ($comment->relationLoaded('replies')) {
+            $replies = $comment->replies->map(function ($reply) use ($userId, $userLikedCommentIds) {
+                return $this->formatCommentOptimized($reply, $userId, $userLikedCommentIds);
+            })->toArray();
+        }
+
+        if (($comment->moderation_status ?? 'visible') === 'removed') {
+            return [
+                'id' => $comment->id,
+                'post_id' => $comment->post_id,
+                'parent_id' => $comment->parent_id,
+                'removed' => true,
+                'removal_reason' => $comment->removal_reason,
+                'content' => null,
+                'user_id' => null,
+                'user_name' => null,
+                'is_anonymous' => null,
+                'likes_count' => 0,
+                'created_at' => $comment->created_at,
+                'user_has_liked' => false,
+                'replies' => $replies,
+            ];
+        }
+
+        return [
             'id' => $comment->id,
             'post_id' => $comment->post_id,
             'parent_id' => $comment->parent_id,
+            'removed' => false,
             'user_id' => $comment->user_id,
             'user_name' => $comment->is_anonymous ? 'Anonymous' : $comment->user->name,
             'content' => $comment->content,
@@ -83,17 +126,8 @@ class CommentController extends Controller
             'likes_count' => $comment->likes_count,
             'created_at' => $comment->created_at,
             'user_has_liked' => in_array($comment->id, $userLikedCommentIds),
-            'replies' => [],
+            'replies' => $replies,
         ];
-
-        // Recursively format replies
-        if ($comment->relationLoaded('replies')) {
-            $formatted['replies'] = $comment->replies->map(function ($reply) use ($userId, $userLikedCommentIds) {
-                return $this->formatCommentOptimized($reply, $userId, $userLikedCommentIds);
-            })->toArray();
-        }
-
-        return $formatted;
     }
 
     /**
@@ -189,6 +223,59 @@ class CommentController extends Controller
                 'likes_count' => $comment->fresh()->likes_count,
             ]);
         }
+    }
+
+    /**
+     * Moderate a comment — remove or restore (admin only)
+     */
+    public function moderate(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'action' => 'required|string|in:remove,restore',
+            'reason' => 'nullable|string|max:255',
+        ]);
+
+        $comment = Comment::findOrFail($id);
+
+        if ($validated['action'] === 'remove') {
+            $comment->update([
+                'moderation_status' => 'removed',
+                'removal_reason' => $validated['reason'] ?? null,
+            ]);
+            return response()->json(['message' => 'Comment removed.', 'comment' => $comment]);
+        }
+
+        $comment->update([
+            'moderation_status' => 'visible',
+            'removal_reason' => null,
+        ]);
+        return response()->json(['message' => 'Comment restored.', 'comment' => $comment]);
+    }
+
+    /**
+     * Get non-visible comments for admin review (admin only)
+     */
+    public function getFlagged()
+    {
+        $comments = Comment::where('moderation_status', '!=', 'visible')
+            ->with(['user:id,name', 'post:id,name'])
+            ->orderBy('updated_at', 'desc')
+            ->get()
+            ->map(function ($comment) {
+                return [
+                    'id'                => $comment->id,
+                    'post_id'           => $comment->post_id,
+                    'post_name'         => $comment->post ? $comment->post->name : '[deleted]',
+                    'user_name'         => $comment->is_anonymous ? 'Anonymous' : ($comment->user ? $comment->user->name : 'Unknown'),
+                    'content'           => $comment->content,
+                    'moderation_status' => $comment->moderation_status,
+                    'removal_reason'    => $comment->removal_reason,
+                    'created_at'        => $comment->created_at,
+                    'updated_at'        => $comment->updated_at,
+                ];
+            });
+
+        return response()->json($comments);
     }
 
     /**

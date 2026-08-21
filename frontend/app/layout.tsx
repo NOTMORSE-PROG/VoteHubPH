@@ -9,6 +9,7 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { LanguageProvider } from "@/lib/language-context"
 import { Providers } from "./providers"
 import { ScrollToTop } from "@/components/scroll-to-top"
+import { SessionTimeoutWarning } from "@/components/session-timeout-warning"
 
 export const metadata: Metadata = {
   title: "VoteHubPH - Empowering Filipino Voters",
@@ -28,6 +29,7 @@ export default function RootLayout({
             <LanguageProvider>
               <Suspense fallback={<div>Loading...</div>}>{children}</Suspense>
               <ScrollToTop />
+              <SessionTimeoutWarning />
               <Analytics />
             </LanguageProvider>
           </ThemeProvider>

@@ -121,12 +121,14 @@ class PostService
      * Automatically creates or adds to party list if party is specified
      *
      * @param int $postId
-     * @return Post
+     * @return array{post: Post, party_list_action: array|null}
      */
-    public function approvePost(int $postId): Post
+    public function approvePost(int $postId): array
     {
-        $updatedPost = DB::transaction(function () use ($postId) {
+        return DB::transaction(function () use ($postId) {
             $post = Post::findOrFail($postId);
+
+            $partyListAction = null;
 
             // Check if post has a party list and hasn't been linked yet
             if ($post->party && !$post->partyListMember) {
@@ -147,6 +149,13 @@ class PostService
                     ]);
 
                     $existingPartyList->increment('member_count');
+
+                    $partyListAction = [
+                        'type' => 'added',
+                        'id' => $existingPartyList->id,
+                        'name' => $existingPartyList->name,
+                        'member_count' => $existingPartyList->member_count,
+                    ];
                 } else {
                     // Create new party list
                     $platform = $post->platform;
@@ -176,6 +185,13 @@ class PostService
                         'post_id' => $post->id,
                         'position_order' => 1,
                     ]);
+
+                    $partyListAction = [
+                        'type' => 'created',
+                        'id' => $partyList->id,
+                        'name' => $partyList->name,
+                        'member_count' => $partyList->member_count,
+                    ];
                 }
             }
 
@@ -187,10 +203,11 @@ class PostService
                 'admin_notes' => null,
             ]);
 
-            return $post->fresh();
+            return [
+                'post' => $post->fresh(),
+                'party_list_action' => $partyListAction,
+            ];
         });
-        
-        return $updatedPost;
     }
 
     /**

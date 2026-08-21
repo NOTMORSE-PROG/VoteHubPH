@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { ThumbsUp, MessageSquare, Vote } from "lucide-react"
+import { ThumbsUp, MessageSquare, Vote, ShieldCheck, AlertTriangle } from "lucide-react"
 import Link from "next/link"
 
 interface Post {
@@ -25,6 +25,7 @@ interface Post {
   updated_at: string
   votes_count?: number
   comments_count?: number
+  verification_status?: string | null
   user: {
     id: string
     name: string
@@ -55,7 +56,19 @@ export function CandidateCard({ post, currentTab = "local" }: CandidateCardProps
             </AvatarFallback>
           </Avatar>
           <div className="flex-1">
-            <CardTitle className="text-xl">{post.name}</CardTitle>
+            <div className="flex items-center gap-1.5">
+              <CardTitle className="text-xl">{post.name}</CardTitle>
+              {post.verification_status === "verified" && (
+                <span title="Verified Official Candidate">
+                  <ShieldCheck className="h-4 w-4 text-green-500 flex-shrink-0" />
+                </span>
+              )}
+              {post.verification_status === "flagged" && (
+                <span title="Flagged for Review">
+                  <AlertTriangle className="h-4 w-4 text-orange-500 flex-shrink-0" />
+                </span>
+              )}
+            </div>
             <CardDescription className="mt-1">Running for {post.position}</CardDescription>
             {post.party && (
               <Badge variant="secondary" className="mt-2">
