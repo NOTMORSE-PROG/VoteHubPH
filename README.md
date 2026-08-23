@@ -100,6 +100,8 @@ Backend API runs at `http://localhost:8000`
 
 ### Admin Setup
 
+See [`admin/README.md`](admin/README.md) for the complete admin configuration and moderation overview.
+
 ```bash
 cd admin
 pnpm install
