@@ -48,8 +48,8 @@ Complete setup guide for VoteHubPH frontend application.
 ### 1. Clone and Install
 
 ```bash
-git clone https://github.com/NOTMORSE-PROG/VoteHubPH_Frontend.git
-cd VoteHubPH_Frontend
+git clone https://github.com/NOTMORSE-PROG/VoteHubPH.git
+cd VoteHubPH/frontend
 pnpm install
 ```
 

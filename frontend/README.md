@@ -24,8 +24,8 @@ Next.js 14 frontend application for VoteHubPH - A comprehensive voting platform 
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/NOTMORSE-PROG/VoteHubPH_Frontend.git
-cd VoteHubPH_Frontend
+git clone https://github.com/NOTMORSE-PROG/VoteHubPH.git
+cd VoteHubPH/frontend
 ```
 
 ### 2. Install Dependencies

@@ -23,8 +23,8 @@ Laravel 11 REST API backend for VoteHubPH - A comprehensive voting platform for 
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/NOTMORSE-PROG/VoteHubPH_Backend.git
-cd VoteHubPH_Backend
+git clone https://github.com/NOTMORSE-PROG/VoteHubPH.git
+cd VoteHubPH/backend
 ```
 
 ### 2. Install Dependencies

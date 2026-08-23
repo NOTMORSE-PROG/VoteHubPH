@@ -62,6 +62,13 @@ VoteHubPH/
 - pnpm (recommended)
 - PostgreSQL database
 
+Clone the canonical project once:
+
+```bash
+git clone https://github.com/NOTMORSE-PROG/VoteHubPH.git
+cd VoteHubPH
+```
+
 ### Frontend Setup
 
 ```bash
@@ -91,6 +98,17 @@ php artisan serve
 
 Backend API runs at `http://localhost:8000`
 
+### Admin Setup
+
+```bash
+cd admin
+pnpm install
+# Create .env.local with NEXT_PUBLIC_API_URL and NEXT_PUBLIC_FRONTEND_URL
+pnpm dev
+```
+
+Admin runs at `http://localhost:3001`.
+
 ## Environment Variables
 
 ### Frontend (.env.local)
@@ -107,11 +125,11 @@ Backend API runs at `http://localhost:8000`
 - `CLOUDINARY_*` - Image upload credentials
 - `MAIL_*` - SMTP email configuration
 
-## Deployment
+## Deployment Status
 
-- **Frontend**: Vercel (recommended)
-- **Backend**: Render / Railway
-- **Database**: Neon PostgreSQL
+No active production deployment was found for VoteHubPH during the consolidation audit. Provider configuration files remain with their components, but deploying the frontend, backend, or admin application is a separate rollout task. Do not advertise a public URL until it has been deployed and verified.
+
+The intended component roots are `frontend/`, `backend/`, and `admin/`. The database configuration supports PostgreSQL/Neon when the required environment values are supplied.
 
 ## License
 

@@ -48,8 +48,8 @@ Complete setup guide for VoteHubPH backend API.
 ### 1. Clone and Install
 
 ```bash
-git clone https://github.com/NOTMORSE-PROG/VoteHubPH_Backend.git
-cd VoteHubPH_Backend
+git clone https://github.com/NOTMORSE-PROG/VoteHubPH.git
+cd VoteHubPH/backend
 composer install
 ```
 
@@ -139,4 +139,3 @@ After setup, verify:
 ## 📞 Support
 
 For issues or questions, please open an issue on GitHub.
-
